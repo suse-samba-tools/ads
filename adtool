@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import sys, argparse
+import sys, argparse, pam
 from getpass import getpass
 from subprocess import Popen, PIPE
 
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     parser.add_argument("-w")
     parser.add_argument('-h', '--help', action='store_true')
     parser.add_argument("s1", choices=['nss', 'user', 'group', 'create', 'delete', 'list'], action='store')
-    parser.add_argument("s2", choices=['getpwnam', 'getpwuid', 'add', 'getgrnam', 'getgrid', 'getpwent', 'getgrent', 'user', 'group', 'users', 'groups'], action='store')
+    parser.add_argument("s2", choices=['getpwnam', 'getpwuid', 'add', 'getgrnam', 'getgrid', 'getpwent', 'getgrent', 'user', 'group', 'users', 'groups', 'checklogin'], action='store')
     parser.add_argument("s3", nargs='?')
 
     args = parser.parse_args()
@@ -95,12 +95,23 @@ if __name__ == "__main__":
         if args.s2 == 'user':
             new_user_pass = getpass("New password: ")
             Popen(['net', 'rpc', 'user', 'add', args.s3, new_user_pass, '-U%s%%%s' % (admin, password), '-S', default_realm]).wait()
+        elif args.s2 == 'group':
+            Popen(['net', 'rpc', 'group', 'add', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm]).wait()
         else:
             print_help()
     elif args.s1 == 'delete':
         if args.s2 == 'user':
             Popen(['net', 'rpc', 'user', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm]).wait()
+        elif args.s2 == 'group':
+            Popen(['net', 'rpc', 'group', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm]).wait()
         else:
             print_help()
+    elif args.s1 == 'user':
+        if args.s2 == 'checklogin':
+            auth_pass = getpass("Password: ")
+            if pam.authenticate(args.s3, auth_pass):
+                print 'Success'
+            else:
+                print 'Fail'
     else:
         print_help()
