@@ -1,0 +1,98 @@
+#!/usr/bin/python
+import sys, argparse
+from getpass import getpass
+from subprocess import Popen, PIPE
+
+conf = '/etc/krb5.conf'
+
+# this is clunky, but works for now (ConfigParser can't parse a krb5.conf)
+def get_default_realm():
+    ans = ''
+    for line in open(conf):
+        line = line.split('#')[0]
+        if 'default_realm' in line:
+            ans = line.split()[-1]
+    # the last defined default_realm is the one we choose
+    return ans
+    
+default_realm = get_default_realm()
+
+def print_help():
+    print 'invalid syntax or option not implemented'
+
+def user_list(admin, password):
+    return Popen(['net', 'rpc', 'user', '-U%s%%%s' % (admin, password), '-S', default_realm], stdout=PIPE).communicate()[0].strip().split('\n')
+
+def group_list(admin, password):
+    return Popen(['net', 'rpc', 'group', '-U%s%%%s' % (admin, password), '-S', default_realm], stdout=PIPE).communicate()[0].strip().split('\n')
+
+def getpwnam(user):
+    return Popen(['getent', 'passwd', user], stdout=PIPE).communicate()[0].strip()
+
+def getgrnam(group):
+    return Popen(['getent', 'group', group], stdout=PIPE).communicate()[0].strip()
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter, add_help=False)
+    parser.add_argument("-u")
+    parser.add_argument("-w")
+    parser.add_argument('-h', '--help', action='store_true')
+    parser.add_argument("s1", choices=['nss', 'user', 'group', 'create', 'delete'], action='store')
+    parser.add_argument("s2", choices=['getpwnam', 'getpwuid', 'add', 'getgrnam', 'getgrid', 'getpwent', 'getgrent', 'user', 'group'], action='store')
+    parser.add_argument("s3", nargs='?')
+
+    args = parser.parse_args()
+
+    if args.help:
+        print_help()
+        exit(0)
+
+    if args.u:
+        admin = args.u
+    else:
+        admin = raw_input("Username: ")
+    if args.w:
+        password = args.w
+    else:
+        password = getpass("Password: ")
+
+    if args.s1 == 'nss':
+        if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
+            pw = getpwnam(args.s3)
+            if not pw:
+                pw = getpwnam('%s@%s' % (args.s3, default_realm))
+            if pw:
+                print pw
+        elif args.s2 == 'getgrnam' or args.s2 == 'getgrid':
+            gr = getgrnam(args.s3)
+            if not gr:
+                gr = getgrnam('%s@%s' % (args.s3, default_realm))
+            if gr:
+                print gr
+        elif args.s2 == 'getpwent':
+            ulist = Popen(['getent', 'passwd'], stdout=PIPE).communicate()[0].strip().split('\n')
+            ulist.extend([getpwnam('%s@%s' % (user, default_realm)) for user in user_list(admin, password)])
+            for pw in ulist:
+                if pw.strip():
+                    print pw
+        elif args.s2 == 'getgrent':
+            glist = Popen(['getent', 'group'], stdout=PIPE).communicate()[0].strip().split('\n')
+            glist.extend([getgrnam('%s@%s' % (group, default_realm)) for group in group_list(admin, password)])
+            for gr in glist:
+                if gr.strip():
+                    print gr
+        else:
+            print_help()
+    elif args.s1 == 'create':
+        if args.s2 == 'user':
+            new_user_pass = getpass("New password: ")
+            Popen(['net', 'rpc', 'user', 'add', args.s3, new_user_pass, '-U%s%%%s' % (admin, password), '-S', default_realm]).wait()
+        else:
+            print_help()
+    elif args.s1 == 'delete':
+        if args.s2 == 'user':
+            Popen(['net', 'rpc', 'user', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm]).wait()
+        else:
+            print_help()
+    else:
+        print_help()
