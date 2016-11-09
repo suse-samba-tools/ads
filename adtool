@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import sys, argparse, pam
+import sys, argparse, PAM
 from getpass import getpass
 from subprocess import Popen, PIPE
 
@@ -42,6 +42,24 @@ def getgrent():
     glist.extend([getgrnam('%s@%s' % (group, default_realm)) for group in group_list(admin, password)])
     return glist
 
+def get_creds(admin, password):
+    if not admin:
+        admin = raw_input("Username: ")
+    if not password:
+        password = getpass("Password: ")
+    return (admin, password)
+
+def pam_conv(auth, query_list):
+    resp = []
+    for (query, type) in query_list:
+        # Never echo
+        if type == PAM.PAM_PROMPT_ECHO_ON or PAM.PAM_PROMPT_ECHO_OFF:
+            resp.append((getpass(query), 0))
+        else:
+            print query
+            resp.append(('', 0))
+    return resp
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter, add_help=False)
     parser.add_argument("-u")
@@ -57,14 +75,12 @@ if __name__ == "__main__":
         print_help()
         exit(0)
 
+    admin = None
     if args.u:
         admin = args.u
-    else:
-        admin = raw_input("Username: ")
+    password = None
     if args.w:
         password = args.w
-    else:
-        password = getpass("Password: ")
 
     if args.s1 == 'nss' or args.s1 == 'list':
         if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
@@ -92,6 +108,7 @@ if __name__ == "__main__":
         else:
             print_help()
     elif args.s1 == 'create':
+        admin, password = get_creds(admin, password)
         if args.s2 == 'user':
             new_user_pass = getpass("New password: ")
             Popen(['net', 'rpc', 'user', 'add', args.s3, new_user_pass, '-U%s%%%s' % (admin, password), '-S', default_realm]).wait()
@@ -100,6 +117,7 @@ if __name__ == "__main__":
         else:
             print_help()
     elif args.s1 == 'delete':
+        admin, password = get_creds(admin, password)
         if args.s2 == 'user':
             Popen(['net', 'rpc', 'user', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm]).wait()
         elif args.s2 == 'group':
@@ -107,11 +125,22 @@ if __name__ == "__main__":
         else:
             print_help()
     elif args.s1 == 'user':
-        if args.s2 == 'checklogin':
-            auth_pass = getpass("Password: ")
-            if pam.authenticate(args.s3, auth_pass):
-                print 'Success'
+        if args.s2 == 'checklogin' and args.s3:
+            p = PAM.pam()
+            p.start('passwd')
+            p.set_item(PAM.PAM_USER, args.s3)
+            p.set_item(PAM.PAM_CONV, pam_conv)
+            try:
+                p.authenticate()
+            except:
+                print 'Authentication failed'
             else:
-                print 'Fail'
+                print 'Authentication succeeded'
+            try:
+                p.acct_mgmt()
+            except:
+                print 'User is not allowed'
+            else:
+                print 'User is allowed'
     else:
         print_help()
