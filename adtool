@@ -66,7 +66,7 @@ if __name__ == "__main__":
     parser.add_argument("-w")
     parser.add_argument('-h', '--help', action='store_true')
     parser.add_argument("s1", choices=['nss', 'user', 'group', 'create', 'delete', 'list'], action='store')
-    parser.add_argument("s2", choices=['getpwnam', 'getpwuid', 'add', 'getgrnam', 'getgrid', 'getpwent', 'getgrent', 'user', 'group', 'users', 'groups', 'checklogin'], action='store')
+    parser.add_argument("s2", choices=['getpwnam', 'getpwuid', 'add', 'getgrnam', 'getgrid', 'getpwent', 'getgrent', 'user', 'group', 'users', 'groups', 'checklogin', 'checkaccess'], action='store')
     parser.add_argument("s3", nargs='?')
 
     args = parser.parse_args()
@@ -136,6 +136,16 @@ if __name__ == "__main__":
                 print 'Authentication failed'
             else:
                 print 'Authentication succeeded'
+            try:
+                p.acct_mgmt()
+            except:
+                print 'User is not allowed'
+            else:
+                print 'User is allowed'
+        elif args.s2 == 'checkaccess' and args.s3:
+            p = PAM.pam()
+            p.start('passwd')
+            p.set_item(PAM.PAM_USER, args.s3)
             try:
                 p.acct_mgmt()
             except:
