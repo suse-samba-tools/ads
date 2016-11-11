@@ -22,31 +22,31 @@ def print_help():
 
 def user_list(admin, password, debug_level):
     cmd = ['net', 'rpc', 'user', '-U%s%%%s' % (admin, password), '-S', default_realm]
-    if debug_level:
+    if debug_level != '0':
         print ' '.join(cmd)
     return Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
 
 def group_list(admin, password, debug_level):
     cmd = ['net', 'rpc', 'group', '-U%s%%%s' % (admin, password), '-S', default_realm]
-    if debug_level:
+    if debug_level != '0':
         print ' '.join(cmd)
     return Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
 
 def getpwnam(user, admin, password, debug_level):
     cmd = ['getent', 'passwd', user]
-    if debug_level:
+    if debug_level != '0':
         print ' '.join(cmd)
     return Popen(cmd, stdout=PIPE).communicate()[0].strip()
 
 def getgrnam(group, admin, password, debug_level):
     cmd = ['getent', 'group', group]
-    if debug_level:
+    if debug_level != '0':
         print ' '.join(cmd)
     return Popen(cmd, stdout=PIPE).communicate()[0].strip()
 
 def getpwent(admin, password, debug_level):
     cmd = ['getent', 'passwd']
-    if debug_level:
+    if debug_level != '0':
         print ' '.join(cmd)
     ulist = Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
     ulist.extend([getpwnam('%s@%s' % (user, default_realm), admin, password, debug_level) for user in user_list(admin, password, debug_level)])
@@ -54,7 +54,7 @@ def getpwent(admin, password, debug_level):
 
 def getgrent(admin, password, debug_level):
     cmd = ['getent', 'group']
-    if debug_level:
+    if debug_level != '0':
         print ' '.join(cmd)
     glist = Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
     glist.extend([getgrnam('%s@%s' % (group, default_realm), admin, password, debug_level) for group in group_list(admin, password, debug_level)])
@@ -84,7 +84,8 @@ if __name__ == "__main__":
     parser.add_argument("-w")
     parser.add_argument("-d")
     parser.add_argument('-h', '--help', action='store_true')
-    parser.add_argument("s1", choices=['nss', 'user', 'group', 'create', 'delete', 'list', 'passwd'], action='store')
+    parser.add_argument("s1", choices=['nss', 'user', 'group', 'create', 'delete', 'list', 'passwd', 'attrs'], action='store')
+    parser.add_argument('-c') # container
     parser.add_argument("s2", nargs='?') # choices=['getpwnam', 'getpwuid', 'add', 'getgrnam', 'getgrid', 'getpwent', 'getgrent', 'user', 'group', 'users', 'groups', 'checklogin', 'checkaccess']
     parser.add_argument("s3", nargs='?')
 
@@ -103,6 +104,9 @@ if __name__ == "__main__":
     debug_level = '0'
     if args.d:
         debug_level = args.d
+    container = None
+    if args.c:
+        container = args.c
 
     if args.s1 == 'nss' or args.s1 == 'list':
         admin, password = get_creds(admin, password)
@@ -135,12 +139,12 @@ if __name__ == "__main__":
         if args.s2 == 'user':
             new_user_pass = getpass("New password: ")
             cmd = ['net', 'rpc', 'user', 'add', args.s3, new_user_pass, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
-            if debug_level:
+            if debug_level != '0':
                 print ' '.join(cmd)
             Popen(cmd).wait()
         elif args.s2 == 'group':
             cmd = ['net', 'rpc', 'group', 'add', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
-            if debug_level:
+            if debug_level != '0':
                 print ' '.join(cmd)
             Popen(cmd).wait()
         else:
@@ -149,12 +153,12 @@ if __name__ == "__main__":
         admin, password = get_creds(admin, password)
         if args.s2 == 'user':
             cmd = ['net', 'rpc', 'user', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
-            if debug_level:
+            if debug_level != '0':
                 print ' '.join(cmd)
             Popen(cmd).wait()
         elif args.s2 == 'group':
             cmd = ['net', 'rpc', 'group', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
-            if debug_level:
+            if debug_level != '0':
                 print ' '.join(cmd)
             Popen(cmd).wait()
         else:
@@ -194,8 +198,22 @@ if __name__ == "__main__":
         else:
             user = getuser()
         cmd = ['net', 'rpc', 'password', user, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
-        if debug_level:
+        if debug_level != '0':
             print ' '.join(cmd)
         Popen(cmd).wait()
+    elif args.s1 == 'attrs':
+        if args.s2:
+            admin, password = get_creds(admin, password)
+            cmd = ['ldapsearch', '-d', debug_level, '-LLL', '-x', '-h', default_realm, '-D', '%s@%s' % (admin, default_realm), '-w', password]
+            if container:
+                cmd.extend(['-b', container])
+            cmd.extend(['(cn=%s)' % args.s2])
+            if args.s3:
+                cmd.extend([args.s3])
+            if debug_level != '0':
+                print ' '.join(cmd)
+            Popen(cmd).wait()
+        else:
+            print_help()
     else:
         print_help()
