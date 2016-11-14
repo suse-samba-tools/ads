@@ -86,15 +86,15 @@ def nss(args):
     global admin, password, debug_level
     admin, password = get_creds(admin, password)
     if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
-        pw = getpwnam(args.s3, admin, password, debug_level)
+        pw = getpwnam(args.object, admin, password, debug_level)
         if not pw:
-            pw = getpwnam('%s@%s' % (args.s3, default_realm), admin, password, debug_level)
+            pw = getpwnam('%s@%s' % (args.object, default_realm), admin, password, debug_level)
         if pw:
             print pw
     elif args.s2 == 'getgrnam' or args.s2 == 'getgrid':
-        gr = getgrnam(args.s3, admin, password, debug_level)
+        gr = getgrnam(args.object, admin, password, debug_level)
         if not gr:
-            gr = getgrnam('%s@%s' % (args.s3, default_realm), admin, password, debug_level)
+            gr = getgrnam('%s@%s' % (args.object, default_realm), admin, password, debug_level)
         if gr:
             print gr
     elif args.s2 == 'getpwent' or args.s2 == 'users':
@@ -115,12 +115,12 @@ def create(args):
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
         new_user_pass = getpass("New password: ")
-        cmd = ['net', 'rpc', 'user', 'add', args.s3, new_user_pass, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+        cmd = ['net', 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         Popen(cmd).wait()
     elif args.s2 == 'group':
-        cmd = ['net', 'rpc', 'group', 'add', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+        cmd = ['net', 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         Popen(cmd).wait()
@@ -131,12 +131,12 @@ def delete(args):
     global admin, password, debug_level
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
-        cmd = ['net', 'rpc', 'user', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+        cmd = ['net', 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         Popen(cmd).wait()
     elif args.s2 == 'group':
-        cmd = ['net', 'rpc', 'group', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+        cmd = ['net', 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         Popen(cmd).wait()
@@ -145,10 +145,10 @@ def delete(args):
 
 def user(args):
     global admin, password, debug_level
-    if args.s2 == 'checklogin' and args.s3:
+    if args.s2 == 'checklogin' and args.user:
         p = PAM.pam()
         p.start('passwd')
-        p.set_item(PAM.PAM_USER, args.s3)
+        p.set_item(PAM.PAM_USER, args.user)
         p.set_item(PAM.PAM_CONV, pam_conv)
         try:
             p.authenticate()
@@ -162,10 +162,10 @@ def user(args):
             print 'User is not allowed'
         else:
             print 'User is allowed'
-    elif args.s2 == 'checkaccess' and args.s3:
+    elif args.s2 == 'checkaccess' and args.user:
         p = PAM.pam()
         p.start('passwd')
-        p.set_item(PAM.PAM_USER, args.s3)
+        p.set_item(PAM.PAM_USER, args.user)
         try:
             p.acct_mgmt()
         except:
@@ -176,8 +176,8 @@ def user(args):
 def passwd(args):
     global admin, password, debug_level
     admin, password = get_creds(admin, password)
-    if args.s2:
-        user = args.s2
+    if args.object:
+        user = args.object
     else:
         user = getuser()
     cmd = ['net', 'rpc', 'password', user, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
@@ -225,27 +225,29 @@ def attrs(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("-u")
-    parser.add_argument("-w")
-    parser.add_argument("-d")
+    parser.add_argument('-u', help='Authenticating user')
+    parser.add_argument('-w', help='Authenticating password')
+    parser.add_argument('-d', help='debug level')
     subparsers = parser.add_subparsers()
 
     nss_parser = subparsers.add_parser('nss')
     nss_parser.add_argument('s2', choices=['getpwnam', 'getpwuid', 'getgrnam', 'getgrid', 'getpwent', 'getgrent'])
-    nss_parser.add_argument('s3', nargs='?')
+    nss_parser.add_argument('object', nargs='?')
     nss_parser.set_defaults(func=nss)
 
     user_parser = subparsers.add_parser('user')
     user_parser.add_argument('s2', choices=['checklogin', 'checkaccess'])
-    user_parser.add_argument('s3', nargs='?')
+    user_parser.add_argument('user', nargs='?')
     user_parser.set_defaults(func=user)
 
     create_parser = subparsers.add_parser('create')
+    create_parser.add_argument('s2', choices=['user', 'group'])
+    create_parser.add_argument('object', nargs='?')
     create_parser.set_defaults(func=create)
 
     delete_parser = subparsers.add_parser('delete')
     delete_parser.add_argument('s2', choices=['user', 'group'])
-    delete_parser.add_argument('s3', nargs='?')
+    delete_parser.add_argument('object', nargs='?')
     delete_parser.set_defaults(func=delete)
 
     list_parser = subparsers.add_parser('list')
@@ -253,6 +255,7 @@ if __name__ == "__main__":
     list_parser.set_defaults(func=nss)
 
     passwd_parser = subparsers.add_parser('passwd')
+    passwd_parser.add_argument('object', nargs='?')
     passwd_parser.set_defaults(func=passwd)
 
     attrs_parser = subparsers.add_parser('attrs')
