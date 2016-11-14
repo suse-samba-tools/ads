@@ -1,9 +1,13 @@
 #!/usr/bin/python
-import sys, argparse, PAM
+import sys, argparse, PAM, struct
 from getpass import getpass, getuser
 from subprocess import Popen, PIPE
+from base64 import b64decode
 
 conf = '/etc/krb5.conf'
+admin = None
+password = None
+debug_level = '0'
 
 # this is clunky, but works for now (ConfigParser can't parse a krb5.conf)
 def get_default_realm():
@@ -78,142 +82,194 @@ def pam_conv(auth, query_list):
             resp.append(('', 0))
     return resp
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter, add_help=False)
-    parser.add_argument("-u")
-    parser.add_argument("-w")
-    parser.add_argument("-d")
-    parser.add_argument('-h', '--help', action='store_true')
-    parser.add_argument("s1", choices=['nss', 'user', 'group', 'create', 'delete', 'list', 'passwd', 'attrs'], action='store')
-    parser.add_argument('-c') # container
-    parser.add_argument("s2", nargs='?') # choices=['getpwnam', 'getpwuid', 'add', 'getgrnam', 'getgrid', 'getpwent', 'getgrent', 'user', 'group', 'users', 'groups', 'checklogin', 'checkaccess']
-    parser.add_argument("s3", nargs='?')
-
-    args = parser.parse_args()
-
-    if args.help:
-        print_help()
-        exit(0)
-
-    admin = None
-    if args.u:
-        admin = args.u
-    password = None
-    if args.w:
-        password = args.w
-    debug_level = '0'
-    if args.d:
-        debug_level = args.d
-    container = None
-    if args.c:
-        container = args.c
-
-    if args.s1 == 'nss' or args.s1 == 'list':
-        admin, password = get_creds(admin, password)
-        if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
-            pw = getpwnam(args.s3, admin, password, debug_level)
-            if not pw:
-                pw = getpwnam('%s@%s' % (args.s3, default_realm), admin, password, debug_level)
-            if pw:
+def nss(args):
+    global admin, password, debug_level
+    admin, password = get_creds(admin, password)
+    if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
+        pw = getpwnam(args.s3, admin, password, debug_level)
+        if not pw:
+            pw = getpwnam('%s@%s' % (args.s3, default_realm), admin, password, debug_level)
+        if pw:
+            print pw
+    elif args.s2 == 'getgrnam' or args.s2 == 'getgrid':
+        gr = getgrnam(args.s3, admin, password, debug_level)
+        if not gr:
+            gr = getgrnam('%s@%s' % (args.s3, default_realm), admin, password, debug_level)
+        if gr:
+            print gr
+    elif args.s2 == 'getpwent' or args.s2 == 'users':
+        ulist = getpwent(admin, password, debug_level)
+        for pw in ulist:
+            if pw.strip():
                 print pw
-        elif args.s2 == 'getgrnam' or args.s2 == 'getgrid':
-            gr = getgrnam(args.s3, admin, password, debug_level)
-            if not gr:
-                gr = getgrnam('%s@%s' % (args.s3, default_realm), admin, password, debug_level)
-            if gr:
+    elif args.s2 == 'getgrent' or args.s2 == 'groups':
+        glist = getgrent(admin, password, debug_level)
+        for gr in glist:
+            if gr.strip():
                 print gr
-        elif args.s2 == 'getpwent' or args.s2 == 'users':
-            ulist = getpwent(admin, password, debug_level)
-            for pw in ulist:
-                if pw.strip():
-                    print pw
-        elif args.s2 == 'getgrent' or args.s2 == 'groups':
-            glist = getgrent(admin, password, debug_level)
-            for gr in glist:
-                if gr.strip():
-                    print gr
-        else:
-            print_help()
-    elif args.s1 == 'create':
-        admin, password = get_creds(admin, password)
-        if args.s2 == 'user':
-            new_user_pass = getpass("New password: ")
-            cmd = ['net', 'rpc', 'user', 'add', args.s3, new_user_pass, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
-            if debug_level != '0':
-                print ' '.join(cmd)
-            Popen(cmd).wait()
-        elif args.s2 == 'group':
-            cmd = ['net', 'rpc', 'group', 'add', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
-            if debug_level != '0':
-                print ' '.join(cmd)
-            Popen(cmd).wait()
-        else:
-            print_help()
-    elif args.s1 == 'delete':
-        admin, password = get_creds(admin, password)
-        if args.s2 == 'user':
-            cmd = ['net', 'rpc', 'user', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
-            if debug_level != '0':
-                print ' '.join(cmd)
-            Popen(cmd).wait()
-        elif args.s2 == 'group':
-            cmd = ['net', 'rpc', 'group', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
-            if debug_level != '0':
-                print ' '.join(cmd)
-            Popen(cmd).wait()
-        else:
-            print_help()
-    elif args.s1 == 'user':
-        if args.s2 == 'checklogin' and args.s3:
-            p = PAM.pam()
-            p.start('passwd')
-            p.set_item(PAM.PAM_USER, args.s3)
-            p.set_item(PAM.PAM_CONV, pam_conv)
-            try:
-                p.authenticate()
-            except:
-                print 'Authentication failed'
-            else:
-                print 'Authentication succeeded'
-            try:
-                p.acct_mgmt()
-            except:
-                print 'User is not allowed'
-            else:
-                print 'User is allowed'
-        elif args.s2 == 'checkaccess' and args.s3:
-            p = PAM.pam()
-            p.start('passwd')
-            p.set_item(PAM.PAM_USER, args.s3)
-            try:
-                p.acct_mgmt()
-            except:
-                print 'User is not allowed'
-            else:
-                print 'User is allowed'
-    elif args.s1 == 'passwd':
-        admin, password = get_creds(admin, password)
-        if args.s2:
-            user = args.s2
-        else:
-            user = getuser()
-        cmd = ['net', 'rpc', 'password', user, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+    else:
+        print_help()
+
+def create(args):
+    global admin, password, debug_level
+    admin, password = get_creds(admin, password)
+    if args.s2 == 'user':
+        new_user_pass = getpass("New password: ")
+        cmd = ['net', 'rpc', 'user', 'add', args.s3, new_user_pass, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         Popen(cmd).wait()
-    elif args.s1 == 'attrs':
-        if args.s2:
-            admin, password = get_creds(admin, password)
-            cmd = ['ldapsearch', '-d', debug_level, '-LLL', '-x', '-h', default_realm, '-D', '%s@%s' % (admin, default_realm), '-w', password]
-            if container:
-                cmd.extend(['-b', container])
-            cmd.extend(['(cn=%s)' % args.s2])
-            if args.s3:
-                cmd.extend([args.s3])
-            if debug_level != '0':
-                print ' '.join(cmd)
-            Popen(cmd).wait()
-        else:
-            print_help()
+    elif args.s2 == 'group':
+        cmd = ['net', 'rpc', 'group', 'add', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+        if debug_level != '0':
+            print ' '.join(cmd)
+        Popen(cmd).wait()
     else:
         print_help()
+
+def delete(args):
+    global admin, password, debug_level
+    admin, password = get_creds(admin, password)
+    if args.s2 == 'user':
+        cmd = ['net', 'rpc', 'user', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+        if debug_level != '0':
+            print ' '.join(cmd)
+        Popen(cmd).wait()
+    elif args.s2 == 'group':
+        cmd = ['net', 'rpc', 'group', 'delete', args.s3, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+        if debug_level != '0':
+            print ' '.join(cmd)
+        Popen(cmd).wait()
+    else:
+        print_help()
+
+def user(args):
+    global admin, password, debug_level
+    if args.s2 == 'checklogin' and args.s3:
+        p = PAM.pam()
+        p.start('passwd')
+        p.set_item(PAM.PAM_USER, args.s3)
+        p.set_item(PAM.PAM_CONV, pam_conv)
+        try:
+            p.authenticate()
+        except:
+            print 'Authentication failed'
+        else:
+            print 'Authentication succeeded'
+        try:
+            p.acct_mgmt()
+        except:
+            print 'User is not allowed'
+        else:
+            print 'User is allowed'
+    elif args.s2 == 'checkaccess' and args.s3:
+        p = PAM.pam()
+        p.start('passwd')
+        p.set_item(PAM.PAM_USER, args.s3)
+        try:
+            p.acct_mgmt()
+        except:
+            print 'User is not allowed'
+        else:
+            print 'User is allowed'
+
+def passwd(args):
+    global admin, password, debug_level
+    admin, password = get_creds(admin, password)
+    if args.s2:
+        user = args.s2
+    else:
+        user = getuser()
+    cmd = ['net', 'rpc', 'password', user, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+    if debug_level != '0':
+        print ' '.join(cmd)
+    Popen(cmd).wait()
+
+# http://stackoverflow.com/questions/33188413/python-code-to-convert-from-objectsid-to-sid-representation
+def convert_objsid_to_sidstr(binary):
+    version = struct.unpack('B', binary[0])[0]
+    # I do not know how to treat version != 1 (it does not exist yet)
+    assert version == 1, version
+    length = struct.unpack('B', binary[1])[0]
+    authority = struct.unpack('>Q', '\x00\x00' + binary[2:8])[0]
+    string = 'S-%d-%d' % (version, authority)
+    binary = binary[8:]
+    assert len(binary) == 4 * length
+    for i in xrange(length):
+        value = struct.unpack('<L', binary[4*i:4*(i+1)])[0]
+        string += '-%d' % (value)
+    return string
+
+def attrs(args):
+    global admin, password, debug_level
+    if args.object:
+        admin, password = get_creds(admin, password)
+        cmd = ['ldapsearch', '-d', debug_level, '-LLL', '-x', '-h', default_realm, '-D', '%s@%s' % (admin, default_realm), '-w', password]
+        if args.c:
+            cmd.extend(['-b', args.c])
+        cmd.extend(['(cn=%s)' % args.object])
+        if args.attributes:
+            cmd.extend(args.attributes)
+        if debug_level != '0':
+            print ' '.join(cmd)
+        results = Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')[1:]
+        if args.b:
+            for i in range(0, len(results)):
+                if results[i].split('::')[0] == 'objectSid':
+                    objsid = results[i].split('::')[-1].strip()
+                    results[i] = results[i].replace(objsid, convert_objsid_to_sidstr(b64decode(objsid)))
+        print '\n'.join(results)
+    else:
+        print_help()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("-u")
+    parser.add_argument("-w")
+    parser.add_argument("-d")
+    subparsers = parser.add_subparsers()
+
+    nss_parser = subparsers.add_parser('nss')
+    nss_parser.add_argument('s2', choices=['getpwnam', 'getpwuid', 'getgrnam', 'getgrid', 'getpwent', 'getgrent'])
+    nss_parser.add_argument('s3', nargs='?')
+    nss_parser.set_defaults(func=nss)
+
+    user_parser = subparsers.add_parser('user')
+    user_parser.add_argument('s2', choices=['checklogin', 'checkaccess'])
+    user_parser.add_argument('s3', nargs='?')
+    user_parser.set_defaults(func=user)
+
+    create_parser = subparsers.add_parser('create')
+    create_parser.set_defaults(func=create)
+
+    delete_parser = subparsers.add_parser('delete')
+    delete_parser.add_argument('s2', choices=['user', 'group'])
+    delete_parser.add_argument('s3', nargs='?')
+    delete_parser.set_defaults(func=delete)
+
+    list_parser = subparsers.add_parser('list')
+    list_parser.add_argument('s2', choices=['users', 'groups'])
+    list_parser.set_defaults(func=nss)
+
+    passwd_parser = subparsers.add_parser('passwd')
+    passwd_parser.set_defaults(func=passwd)
+
+    attrs_parser = subparsers.add_parser('attrs')
+    attrs_parser.add_argument('-b', action='store_true') # convert sid to human readable form
+    attrs_parser.add_argument('-c') # container
+    attrs_parser.add_argument('object')
+    attrs_parser.add_argument('attributes', nargs='*')
+    attrs_parser.set_defaults(func=attrs)
+
+    args = parser.parse_args()
+
+    if args.u:
+        admin = args.u
+    if args.w:
+        password = args.w
+    if args.d:
+        debug_level = args.d
+
+    args.func(args)
+
