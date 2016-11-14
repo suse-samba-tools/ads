@@ -200,13 +200,20 @@ def convert_objsid_to_sidstr(binary):
         string += '-%d' % (value)
     return string
 
+def realm_to_dn(realm):
+    return ','.join(['dc=%s' % part for part in realm.split('.')])
+
 def attrs(args):
     global admin, password, debug_level
     if args.object:
         admin, password = get_creds(admin, password)
         cmd = ['ldapsearch', '-d', debug_level, '-LLL', '-x', '-h', default_realm, '-D', '%s@%s' % (admin, default_realm), '-w', password]
-        if args.c:
-            cmd.extend(['-b', args.c])
+        container = args.c
+        if not container and args.g:
+            container = 'cn=groups,%s' % realm_to_dn(default_realm)
+        elif not container:
+            container = 'cn=users,%s' % realm_to_dn(default_realm)
+        cmd.extend(['-b', container])
         cmd.extend(['(cn=%s)' % args.object])
         if args.attributes:
             cmd.extend(args.attributes)
@@ -259,8 +266,9 @@ if __name__ == "__main__":
     passwd_parser.set_defaults(func=passwd)
 
     attrs_parser = subparsers.add_parser('attrs')
-    attrs_parser.add_argument('-b', action='store_true') # convert sid to human readable form
-    attrs_parser.add_argument('-c') # container
+    attrs_parser.add_argument('-b', action='store_true', help='Convert sid to human readable form')
+    attrs_parser.add_argument('-c', help='Container to search in')
+    attrs_parser.add_argument('-g', help='Treat the object as a group name', action='store_true')
     attrs_parser.add_argument('object')
     attrs_parser.add_argument('attributes', nargs='*')
     attrs_parser.set_defaults(func=attrs)
