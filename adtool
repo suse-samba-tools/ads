@@ -229,6 +229,17 @@ def attrs(args):
     else:
         print_help()
 
+def join(args):
+    global admin, password, debug_level
+    admin, password = get_creds(admin, password)
+    cmd = ['net', 'ads', 'join', '-U%s%%%s' % (admin, password), '-d', debug_level]
+    if not args.servers:
+        cmd.extend(['-S', args.domain])
+    else:
+        cmd.extend(['-S', args.servers[-1]])
+    if debug_level != '0':
+            print ' '.join(cmd)
+    Popen(cmd).wait()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -272,6 +283,11 @@ if __name__ == "__main__":
     attrs_parser.add_argument('object')
     attrs_parser.add_argument('attributes', nargs='*')
     attrs_parser.set_defaults(func=attrs)
+
+    join_parser = subparsers.add_parser('join')
+    join_parser.add_argument('domain')
+    join_parser.add_argument('servers', nargs='*')
+    join_parser.set_defaults(func=join)
 
     args = parser.parse_args()
 
