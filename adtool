@@ -17,6 +17,8 @@ def get_default_realm():
         if 'default_realm' in line:
             ans = line.split()[-1]
     # the last defined default_realm is the one we choose
+    if not ans:
+        ans = raw_input('Default realm not found, specify a server: ')
     return ans
     
 default_realm = get_default_realm()
