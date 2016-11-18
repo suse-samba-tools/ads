@@ -358,6 +358,10 @@ def join(args):
     print 'Configuring pam...'
     configure_pam()
 
+    # start winbindd
+    print 'Starting winbindd...'
+    Popen(['/usr/sbin/winbindd', '-D']) # intentionally not waiting
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-u', help='Authenticating user')
