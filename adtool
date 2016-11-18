@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import sys, argparse, PAM, struct
+import sys, argparse, PAM, struct, netifaces
 from getpass import getpass, getuser
 from subprocess import Popen, PIPE
 from base64 import b64decode
@@ -12,7 +12,7 @@ password = None
 debug_level = '0'
 
 # this is clunky, but works for now (ConfigParser can't parse a krb5.conf)
-def get_default_realm():
+def get_default_realm_int():
     ans = ''
     for line in open(conf):
         line = line.split('#')[0]
@@ -23,22 +23,27 @@ def get_default_realm():
         ans = raw_input('Default realm not found, specify a server: ')
     return ans
 
+default_realm = None
+def get_default_realm():
+    global default_realm
+    if not default_realm:
+        default_realm = get_default_realm_int()
+    return default_realm
+
 def get_smb_conf():
     return Popen(['grep', 'CONFIGFILE'], stdin=Popen([smbd, '-b'], stdout=PIPE).stdout, stdout=PIPE).communicate()[0].strip().split(':')[-1].strip()
     
-default_realm = get_default_realm()
-
 def print_help():
     print 'invalid syntax or option not implemented'
 
 def user_list(admin, password, debug_level):
-    cmd = ['net', 'rpc', 'user', '-U%s%%%s' % (admin, password), '-S', default_realm]
+    cmd = ['net', 'rpc', 'user', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
     if debug_level != '0':
         print ' '.join(cmd)
     return Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
 
 def group_list(admin, password, debug_level):
-    cmd = ['net', 'rpc', 'group', '-U%s%%%s' % (admin, password), '-S', default_realm]
+    cmd = ['net', 'rpc', 'group', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
     if debug_level != '0':
         print ' '.join(cmd)
     return Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
@@ -60,7 +65,7 @@ def getpwent(admin, password, debug_level):
     if debug_level != '0':
         print ' '.join(cmd)
     ulist = Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
-    ulist.extend([getpwnam('%s@%s' % (user, default_realm), admin, password, debug_level) for user in user_list(admin, password, debug_level)])
+    ulist.extend([getpwnam('%s@%s' % (user, get_default_realm()), admin, password, debug_level) for user in user_list(admin, password, debug_level)])
     return ulist
 
 def getgrent(admin, password, debug_level):
@@ -68,7 +73,7 @@ def getgrent(admin, password, debug_level):
     if debug_level != '0':
         print ' '.join(cmd)
     glist = Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
-    glist.extend([getgrnam('%s@%s' % (group, default_realm), admin, password, debug_level) for group in group_list(admin, password, debug_level)])
+    glist.extend([getgrnam('%s@%s' % (group, get_default_realm()), admin, password, debug_level) for group in group_list(admin, password, debug_level)])
     return glist
 
 def get_creds(admin, password):
@@ -95,13 +100,13 @@ def nss(args):
     if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
         pw = getpwnam(args.object, admin, password, debug_level)
         if not pw:
-            pw = getpwnam('%s@%s' % (args.object, default_realm), admin, password, debug_level)
+            pw = getpwnam('%s@%s' % (args.object, get_default_realm()), admin, password, debug_level)
         if pw:
             print pw
     elif args.s2 == 'getgrnam' or args.s2 == 'getgrid':
         gr = getgrnam(args.object, admin, password, debug_level)
         if not gr:
-            gr = getgrnam('%s@%s' % (args.object, default_realm), admin, password, debug_level)
+            gr = getgrnam('%s@%s' % (args.object, get_default_realm()), admin, password, debug_level)
         if gr:
             print gr
     elif args.s2 == 'getpwent' or args.s2 == 'users':
@@ -122,12 +127,12 @@ def create(args):
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
         new_user_pass = getpass("New password: ")
-        cmd = ['net', 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+        cmd = ['net', 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         return Popen(cmd).wait()
     elif args.s2 == 'group':
-        cmd = ['net', 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+        cmd = ['net', 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         return Popen(cmd).wait()
@@ -138,12 +143,12 @@ def delete(args):
     global admin, password, debug_level
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
-        cmd = ['net', 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+        cmd = ['net', 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         return Popen(cmd).wait()
     elif args.s2 == 'group':
-        cmd = ['net', 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+        cmd = ['net', 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         return Popen(cmd).wait()
@@ -187,7 +192,7 @@ def passwd(args):
         user = args.object
     else:
         user = getuser()
-    cmd = ['net', 'rpc', 'password', user, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
+    cmd = ['net', 'rpc', 'password', user, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
     if debug_level != '0':
         print ' '.join(cmd)
     return Popen(cmd).wait()
@@ -214,12 +219,12 @@ def attrs(args):
     global admin, password, debug_level
     if args.object:
         admin, password = get_creds(admin, password)
-        cmd = ['ldapsearch', '-d', debug_level, '-LLL', '-x', '-h', default_realm, '-D', '%s@%s' % (admin, default_realm), '-w', password]
+        cmd = ['ldapsearch', '-d', debug_level, '-LLL', '-x', '-h', get_default_realm(), '-D', '%s@%s' % (admin, get_default_realm()), '-w', password]
         container = args.c
         if not container and args.g:
-            container = 'cn=groups,%s' % realm_to_dn(default_realm)
+            container = 'cn=groups,%s' % realm_to_dn(get_default_realm())
         elif not container:
-            container = 'cn=users,%s' % realm_to_dn(default_realm)
+            container = 'cn=users,%s' % realm_to_dn(get_default_realm())
         cmd.extend(['-b', container])
         cmd.extend(['(cn=%s)' % args.object])
         if args.attributes:
@@ -320,6 +325,53 @@ def configure_pam():
     of = open(pam_conf, 'w')
     of.write(conf)
 
+def update_hostname(hostname, domain):
+    # Retrieve the current hostname if one was specified
+    shortname = None
+    if not hostname:
+        hostname = Popen(['hostname'], stdout=PIPE).communicate()[0].strip()
+    if not domain.lower() in hostname:
+        shortname = hostname
+        hostname = '%s.%s\n' % (hostname, domain)
+    else:
+        shortname = hostname.split('.')[0]
+
+    # Update the /etc/hostname file
+    hf = open('/etc/hostname', 'w')
+    hf.write('%s\n' % hostname)
+
+    # Update the in-memory hostname
+    Popen(['hostname', hostname]).wait()
+
+    # Add an entry to /etc/hosts so we can resolve our own name
+    hosts = '/etc/hosts'
+    ip_addrs = [netifaces.ifaddresses(interface)[2][0]['addr'] for interface in netifaces.interfaces() if netifaces.ifaddresses(interface)[2][0]['addr'] != '127.0.0.1']
+    conf = ''
+    for line in open(hosts):
+        if hostname not in line:
+            conf += line
+    conf = conf.strip()
+    conf += '\n'
+    # Only the last one is used, may need to be manually configured
+    for ip in ip_addrs:
+        conf += '%s\t%s %s\n' % (ip, shortname, hostname)
+    of = open(hosts, 'w')
+    of.write(conf)
+
+def config_krb5_conf(domain, server):
+    krb5_conf = '/etc/krb5.conf'
+    kof = open(krb5_conf, 'w')
+    kof.write('[libdefaults]\n')
+    kof.write('\tdefault_realm = %s\n' % domain)
+    kof.write('\tclockskew = 300\n')
+    kof.write('\tticket_lifetime = 1d\n')
+    kof.write('\tforwardable = true\n')
+    kof.write('\tproxiable = true\n')
+    kof.write('\tdns_lookup_realm = true\n')
+    kof.write('\tdns_lookup_kdc = true\n')
+    kof.write('\n\n[realms]\n')
+    kof.write('\t%s = {\n\t\tkdc = %s\n\t\tadmin_server = %s\n\t\tdefault_domain = %s\n\t}\n' % (domain, server, server, domain))
+
 def join(args):
     global admin, password, debug_level
     if getuser() != 'root':
@@ -337,6 +389,10 @@ def join(args):
     print 'Adding ntp servers and time syncing with AD...'
     config_ntp(args.servers)
 
+    # Update hostname
+    print 'Updating hostname...'
+    update_hostname(args.n, args.domain)
+
     # configure smb.conf
     print 'Configuring smb.conf...'
     config_smb_conf(args.domain, server)
@@ -344,6 +400,10 @@ def join(args):
     # configure pam_winbind.conf
     print 'Configuring pam_winbind.conf...'
     config_winbind_conf()
+
+    # configure kerberos
+    print 'Configuring kerberos...'
+    config_krb5_conf(args.domain, server)
 
     # net ads join the domain
     print 'Joining the domain...'
@@ -411,6 +471,7 @@ if __name__ == "__main__":
 
     join_parser = subparsers.add_parser('join')
     join_parser.add_argument('domain')
+    join_parser.add_argument('-n', help='Join as hostname')
     join_parser.add_argument('servers', nargs='*')
     join_parser.set_defaults(func=join)
 

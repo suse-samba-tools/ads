@@ -12,6 +12,7 @@ Group:		Productivity/Networking/Samba
 Source:		%{name}-%{version}.tar.gz
 Requires:   samba-client
 Requires:   python-pam
+Requires:   python-netifaces
 
 %description
 Tool for working with ad users on samba/winbind
