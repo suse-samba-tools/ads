@@ -120,12 +120,12 @@ def create(args):
         cmd = ['net', 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
-        Popen(cmd).wait()
+        return Popen(cmd).wait()
     elif args.s2 == 'group':
         cmd = ['net', 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
-        Popen(cmd).wait()
+        return Popen(cmd).wait()
     else:
         print_help()
 
@@ -136,12 +136,12 @@ def delete(args):
         cmd = ['net', 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
-        Popen(cmd).wait()
+        return Popen(cmd).wait()
     elif args.s2 == 'group':
         cmd = ['net', 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
-        Popen(cmd).wait()
+        return Popen(cmd).wait()
     else:
         print_help()
 
@@ -185,7 +185,7 @@ def passwd(args):
     cmd = ['net', 'rpc', 'password', user, '-U%s%%%s' % (admin, password), '-S', default_realm, '-d', debug_level]
     if debug_level != '0':
         print ' '.join(cmd)
-    Popen(cmd).wait()
+    return Popen(cmd).wait()
 
 # http://stackoverflow.com/questions/33188413/python-code-to-convert-from-objectsid-to-sid-representation
 def convert_objsid_to_sidstr(binary):
@@ -221,13 +221,15 @@ def attrs(args):
             cmd.extend(args.attributes)
         if debug_level != '0':
             print ' '.join(cmd)
-        results = Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')[1:]
+        p = Popen(cmd, stdout=PIPE)
+        results = p.communicate()[0].strip().split('\n')[1:]
         if args.b:
             for i in range(0, len(results)):
                 if results[i].split('::')[0] == 'objectSid':
                     objsid = results[i].split('::')[-1].strip()
                     results[i] = results[i].replace(objsid, convert_objsid_to_sidstr(b64decode(objsid)))
         print '\n'.join(results)
+        return p.returncode
     else:
         print_help()
 
@@ -241,7 +243,7 @@ def join(args):
         cmd.extend(['-S', args.servers[-1]])
     if debug_level != '0':
             print ' '.join(cmd)
-    Popen(cmd).wait()
+    return Popen(cmd).wait()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -300,5 +302,5 @@ if __name__ == "__main__":
     if args.d:
         debug_level = args.d
 
-    args.func(args)
+    exit(args.func(args))
 
