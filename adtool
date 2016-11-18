@@ -348,7 +348,7 @@ def join(args):
     cmd = ['net', 'ads', 'join', '-U%s%%%s' % (admin, password), '-d', debug_level, '-S', server]
     if debug_level != '0':
             print ' '.join(cmd)
-    return Popen(cmd).wait()
+    Popen(cmd).wait()
 
     # configure nss
     print 'Configuring nsswitch.conf...'
