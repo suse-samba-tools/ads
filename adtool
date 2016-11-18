@@ -250,16 +250,18 @@ def timesync(args):
 def config_ntp(server):
     # stop the ntp service
     Popen(['service', 'ntpd', 'stop']).wait()
+
+    ntp_conf = '/etc/ntp.conf'
     config = ''
-    for line in open('/etc/ntp.conf'):
-        if line.strip().split()[0] != 'server': # throw out old server list
-            config.append(line)
-    config.append('\n# timesync with the joined AD server\nserver %s\n' % server)
-    of = open('/etc/ntp.conf', 'w')
+    for line in open(ntp_conf):
+        if line.strip() and line.strip().split()[0] != 'server': # throw out old server list
+            config += line
+    config += '\n# timesync with the joined AD server\nserver %s\n' % server
+    of = open(ntp_conf, 'w')
     of.write(config)
 
     # tell ntp to update the time
-    Popen(['ntpd', '-gq']).wait()
+    Popen(['/usr/sbin/ntpdate', server]).wait()
 
     # restart ntp
     Popen(['service', 'ntpd', 'start']).wait()
@@ -299,9 +301,9 @@ def configure_nss():
     for line in open(nsswitch):
         fore = line.strip().split(':')[0]
         if (fore == 'passwd' or fore == 'group') and 'winbind' not in line:
-            conf.append('%s winbind\n' % line.rstrip())
+            conf += '%s winbind\n' % line.rstrip()
         else:
-            conf.append(line)
+            conf += line
     of = open(nsswitch, 'w')
     of.write(conf)
 
@@ -309,12 +311,11 @@ def configure_pam():
     pam_conf = '/etc/pam.d/common-auth'
     conf = ''
     for line in open(pam_conf):
-        # auth    required    pam_unix.so try_first_pass
         if 'pam_unix.so' in line:
-            conf.append('auth\tsufficient\tpam_unix.so try_first_pass\n')
-            conf.append('auth\trequired\tpam_winbind.so use_first_pass\n')
+            conf += 'auth\tsufficient\tpam_unix.so try_first_pass\n'
+            conf += 'auth\trequired\tpam_winbind.so use_first_pass\n'
         else:
-            conf.append(line)
+            conf += line
     of = open(pam_conf, 'w')
     of.write(conf)
 
@@ -339,15 +340,15 @@ def join(args):
     print 'Configuring smb.conf...'
     config_smb_conf(args.domain, server)
 
-    # configure winbind.conf
-    print 'Configuring winbind.conf...'
+    # configure pam_winbind.conf
+    print 'Configuring pam_winbind.conf...'
     config_winbind_conf()
 
     # net ads join the domain
     print 'Joining the domain...'
     cmd = ['net', 'ads', 'join', '-U%s%%%s' % (admin, password), '-d', debug_level, '-S', server]
     if debug_level != '0':
-            print ' '.join(cmd)
+        print ' '.join(cmd)
     Popen(cmd).wait()
 
     # configure nss
