@@ -24,8 +24,7 @@ def get_default_realm():
     return ans
 
 def get_smb_conf():
-    p = Popen([smbd, '-b'], stdout=PIPE)
-    return Popen(['grep', 'CONFIGFILE'], stdin=p.stdout, stdout=PIPE).communicate()[0].strip().split(':').strip()
+    return Popen(['grep', 'CONFIGFILE'], stdin=Popen([smbd, '-b'], stdout=PIPE).stdout, stdout=PIPE).communicate()[0].strip().split(':')[-1].strip()
     
 default_realm = get_default_realm()
 
@@ -247,7 +246,7 @@ def timesync(args):
     else:
         print_help()
 
-def config_ntp(server):
+def config_ntp(servers):
     # stop the ntp service
     Popen(['service', 'ntpd', 'stop']).wait()
 
@@ -256,7 +255,8 @@ def config_ntp(server):
     for line in open(ntp_conf):
         if line.strip() and line.strip().split()[0] != 'server': # throw out old server list
             config += line
-    config += '\n# timesync with the joined AD server\nserver %s\n' % server
+    for server in servers:
+        config += '\nserver %s\n' % server
     of = open(ntp_conf, 'w')
     of.write(config)
 
@@ -333,8 +333,8 @@ def join(args):
         server = args.servers[-1]
 
     # Configure ntp
-    print 'Adding %s as ntp server...' % server
-    config_ntp(server)
+    print 'Adding ntp servers and time syncing with AD...'
+    config_ntp(args.servers)
 
     # configure smb.conf
     print 'Configuring smb.conf...'
@@ -349,7 +349,9 @@ def join(args):
     cmd = ['net', 'ads', 'join', '-U%s%%%s' % (admin, password), '-d', debug_level, '-S', server]
     if debug_level != '0':
         print ' '.join(cmd)
-    Popen(cmd).wait()
+    ret = Popen(cmd).wait()
+    if ret != 0:
+        return ret
 
     # configure nss
     print 'Configuring nsswitch.conf...'
