@@ -270,6 +270,7 @@ def config_smb_conf(domain, server):
     smb_conf = get_smb_conf()
     of = open(smb_conf, 'w')
     of.write('[global]\n')
+    of.write('\tsecurity = ads\n')
     of.write('\tworkgroup = %s\n' % domain.split('.')[0].upper())
     of.write('\trealm = %s\n' % domain.upper())
     of.write('\tlog file = /var/log/samba/%%m.log\n')
