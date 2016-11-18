@@ -5,6 +5,8 @@ from subprocess import Popen, PIPE
 from base64 import b64decode
 
 conf = '/etc/krb5.conf'
+winbindd = '/usr/sbin/winbindd'
+smbd = '/usr/sbin/smbd'
 admin = None
 password = None
 debug_level = '0'
@@ -18,6 +20,10 @@ def get_default_realm():
             ans = line.split()[-1]
     # the last defined default_realm is the one we choose
     return ans
+
+def get_smb_conf():
+    p = Popen([smbd, '-b'], stdout=PIPE)
+    return Popen(['grep', 'CONFIGFILE'], stdin=p.stdout, stdout=PIPE).communicate()[0].strip().split(':').strip()
     
 default_realm = get_default_realm()
 
@@ -229,17 +235,124 @@ def attrs(args):
     else:
         print_help()
 
+def timesync(args):
+    if args.s:
+        Popen(['service', 'ntpd', 'stop']).wait()
+        Popen(['/usr/sbin/ntpdate', args.s]).wait()
+        Popen(['service', 'ntpd', 'start']).wait()
+    else:
+        print_help()
+
+def config_ntp(server):
+    # stop the ntp service
+    Popen(['service', 'ntpd', 'stop']).wait()
+    config = ''
+    for line in open('/etc/ntp.conf'):
+        if line.strip().split()[0] != 'server': # throw out old server list
+            config.append(line)
+    config.append('\n# timesync with the joined AD server\nserver %s\n' % server)
+    of = open('/etc/ntp.conf', 'w')
+    of.write(config)
+
+    # tell ntp to update the time
+    Popen(['ntpd', '-gq']).wait()
+
+    # restart ntp
+    Popen(['service', 'ntpd', 'start']).wait()
+
+def config_smb_conf(domain, server):
+    smb_conf = get_smb_conf()
+    of = open(smb_conf, 'w')
+    of.write('[global]\n')
+    of.write('\tworkgroup = %s\n' % domain.split('.')[0].upper())
+    of.write('\trealm = %s\n' % domain.upper())
+    of.write('\tlog file = /var/log/samba/%%m.log\n')
+    of.write('\tlog level = 1\n')
+    of.write('\twinbind nss info = rfc2307\n')
+    of.write('\tidmap config *:backend = tdb\n')
+    of.write('\tidmap config *:range = 2000-9999\n')
+    of.write('\tidmap config SAMDOM:backend = ad\n')
+    of.write('\tidmap config SAMDOM:schema_mode = rfc2307\n')
+    of.write('\tidmap config SAMDOM:range = 10000-99999\n')
+    of.write('\twinbind offline logon = yes\n')
+
+def get_winbind_conf():
+    return '/etc/security/pam_winbind.conf'
+
+def config_winbind_conf():
+    winbind_conf = get_winbind_conf()
+    of = open(winbind_conf, 'w')
+    of.write('[global]\n')
+    of.write('\tcached_login = yes\n')
+    of.write('\tkrb5_auth = yes\n')
+    of.write('\tkrb5_ccache_type = FILE\n')
+    of.write('\twarn_pwd_expire = 14\n')
+    of.write('\tmkhomedir = yes\n')
+
+def configure_nss():
+    nsswitch = '/etc/nsswitch.conf'
+    conf = ''
+    for line in open(nsswitch):
+        fore = line.strip().split(':')[0]
+        if (fore == 'passwd' or fore == 'group') and 'winbind' not in line:
+            conf.append('%s winbind\n' % line.rstrip())
+        else:
+            conf.append(line)
+    of = open(nsswitch, 'w')
+    of.write(conf)
+
+def configure_pam():
+    pam_conf = '/etc/pam.d/common-auth'
+    conf = ''
+    for line in open(pam_conf):
+        # auth    required    pam_unix.so try_first_pass
+        if 'pam_unix.so' in line:
+            conf.append('auth\tsufficient\tpam_unix.so try_first_pass\n')
+            conf.append('auth\trequired\tpam_winbind.so use_first_pass\n')
+        else:
+            conf.append(line)
+    of = open(pam_conf, 'w')
+    of.write(conf)
+
 def join(args):
     global admin, password, debug_level
+    if getuser() != 'root':
+        sys.stderr.write('adtool join must be run as root\n')
+        exit(1)
     admin, password = get_creds(admin, password)
-    cmd = ['net', 'ads', 'join', '-U%s%%%s' % (admin, password), '-d', debug_level]
+
+    server = None
     if not args.servers:
-        cmd.extend(['-S', args.domain])
+        server = args.domain
     else:
-        cmd.extend(['-S', args.servers[-1]])
+        server = args.servers[-1]
+
+    # Configure ntp
+    print 'Adding %s as ntp server...' % server
+    config_ntp(server)
+
+    # configure smb.conf
+    print 'Configuring smb.conf...'
+    config_smb_conf(args.domain, server)
+
+    # configure winbind.conf
+    print 'Configuring winbind.conf...'
+    config_winbind_conf()
+
+    # net ads join the domain
+    print 'Joining the domain...'
+    cmd = ['net', 'ads', 'join', '-U%s%%%s' % (admin, password), '-d', debug_level, '-S', server]
     if debug_level != '0':
             print ' '.join(cmd)
     Popen(cmd).wait()
+
+    # configure nss
+    print 'Configuring nsswitch.conf...'
+    configure_nss()
+
+    # configure pam
+    print 'Configuring pam...'
+    configure_pam()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -288,6 +401,10 @@ if __name__ == "__main__":
     join_parser.add_argument('domain')
     join_parser.add_argument('servers', nargs='*')
     join_parser.set_defaults(func=join)
+
+    timesync_parser = subparsers.add_parser('timesync')
+    timesync_parser.add_argument('-s', help='Server to sync with')
+    timesync_parser.set_defaults(func=timesync)
 
     args = parser.parse_args()
 
