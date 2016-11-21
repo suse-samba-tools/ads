@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import sys, argparse, PAM, struct, netifaces
+import sys, argparse, PAM, struct, netifaces, os.path
 from getpass import getpass, getuser
 from subprocess import Popen, PIPE
 from base64 import b64decode
@@ -376,6 +376,8 @@ def configure_nss():
             conf += line
     of = open(nsswitch, 'w')
     of.write(conf)
+    if not os.path.exists('/lib64/libnss_winbind.so') and not os.path.exists('/lib/libnss_winbind.so'):
+        sys.stderr.write('Cannot find /lib{64}/libnss_winbind.so, check that you\'ve installed the library')
 
 def configure_pam():
     global pam_conf
@@ -388,6 +390,8 @@ def configure_pam():
             conf += line
     of = open(pam_conf, 'w')
     of.write(conf)
+    if not os.path.exists('/lib64/security/pam_winbind.so') and not os.path.exists('/lib64/security/pam_winbind.so'):
+        sys.stderr.write('Cannot find /lib{64}/security/pam_winbind.so, check that you\'ve installed the library')
 
 def update_hostname(hostname, domain):
     # Retrieve the current hostname if one was specified
