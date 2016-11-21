@@ -4,17 +4,20 @@ from getpass import getpass, getuser
 from subprocess import Popen, PIPE
 from base64 import b64decode
 
-conf = '/etc/krb5.conf'
+krb5_conf = '/etc/krb5.conf'
 winbindd = '/usr/sbin/winbindd'
 smbd = '/usr/sbin/smbd'
+pam_conf = '/etc/pam.d/common-auth'
+winbind_conf = '/etc/security/pam_winbind.conf'
 admin = None
 password = None
 debug_level = '0'
 
 # this is clunky, but works for now (ConfigParser can't parse a krb5.conf)
 def get_default_realm_int():
+    global krb5_conf
     ans = ''
-    for line in open(conf):
+    for line in open(krb5_conf):
         line = line.split('#')[0]
         if 'default_realm' in line:
             ans = line.split()[-1]
@@ -30,20 +33,24 @@ def get_default_realm():
         default_realm = get_default_realm_int()
     return default_realm
 
+smb_conf = None
 def get_smb_conf():
-    return Popen(['grep', 'CONFIGFILE'], stdin=Popen([smbd, '-b'], stdout=PIPE).stdout, stdout=PIPE).communicate()[0].strip().split(':')[-1].strip()
+    global smb_conf
+    if not smb_conf:
+        smb_conf = Popen(['grep', 'CONFIGFILE'], stdin=Popen([smbd, '-b'], stdout=PIPE).stdout, stdout=PIPE).communicate()[0].strip().split(':')[-1].strip()
+    return smb_conf
     
 def print_help():
     print 'invalid syntax or option not implemented'
 
 def user_list(admin, password, debug_level):
-    cmd = ['net', 'rpc', 'user', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
+    cmd = ['net', '--configfile=%s' % get_smb_conf(), 'rpc', 'user', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
     if debug_level != '0':
         print ' '.join(cmd)
     return Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
 
 def group_list(admin, password, debug_level):
-    cmd = ['net', 'rpc', 'group', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
+    cmd = ['net', '--configfile=%s' % get_smb_conf(), 'rpc', 'group', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
     if debug_level != '0':
         print ' '.join(cmd)
     return Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
@@ -127,12 +134,12 @@ def create(args):
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
         new_user_pass = getpass("New password: ")
-        cmd = ['net', 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+        cmd = ['net', '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         return Popen(cmd).wait()
     elif args.s2 == 'group':
-        cmd = ['net', 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+        cmd = ['net', '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         return Popen(cmd).wait()
@@ -143,12 +150,12 @@ def delete(args):
     global admin, password, debug_level
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
-        cmd = ['net', 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+        cmd = ['net', '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         return Popen(cmd).wait()
     elif args.s2 == 'group':
-        cmd = ['net', 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+        cmd = ['net', '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
             print ' '.join(cmd)
         return Popen(cmd).wait()
@@ -192,7 +199,7 @@ def passwd(args):
         user = args.object
     else:
         user = getuser()
-    cmd = ['net', 'rpc', 'password', user, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+    cmd = ['net', '--configfile=%s' % get_smb_conf(), 'rpc', 'password', user, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
     if debug_level != '0':
         print ' '.join(cmd)
     return Popen(cmd).wait()
@@ -243,6 +250,23 @@ def attrs(args):
     else:
         print_help()
 
+def setattrs(args):
+    global admin, password, debug_level
+
+    ldif = 'dn: %s\n' % args.object
+    ldif += 'changetype: modify\n'
+    ldif += 'replace: %s\n' % args.attribute
+    ldif += '%s: %s\n' % (args.attribute, args.value)
+
+    if ldif:
+        admin, password = get_creds(admin, password)
+        cmd = ['ldapmodify', '-d', debug_level, '-x', '-h', get_default_realm(), '-D', '%s@%s' % (admin, get_default_realm()), '-w', password]
+        if debug_level != '0':
+            print ' '.join(cmd)
+        Popen(cmd, stdin=PIPE).communicate(input=ldif)
+    else:
+        print_help()
+
 def timesync(args):
     if args.s:
         Popen(['service', 'ntpd', 'stop']).wait()
@@ -271,28 +295,68 @@ def config_ntp(servers):
     # restart ntp
     Popen(['service', 'ntpd', 'start']).wait()
 
-def config_smb_conf(domain, server):
+def config_smb_conf(domain, server, autogen=False):
     smb_conf = get_smb_conf()
     of = open(smb_conf, 'w')
-    of.write('[global]\n')
-    of.write('\tsecurity = ads\n')
-    of.write('\tworkgroup = %s\n' % domain.split('.')[0].upper())
-    of.write('\trealm = %s\n' % domain.upper())
-    of.write('\tlog file = /var/log/samba/%%m.log\n')
-    of.write('\tlog level = 1\n')
-    of.write('\twinbind nss info = rfc2307\n')
-    of.write('\tidmap config *:backend = tdb\n')
-    of.write('\tidmap config *:range = 2000-9999\n')
-    of.write('\tidmap config SAMDOM:backend = ad\n')
-    of.write('\tidmap config SAMDOM:schema_mode = rfc2307\n')
-    of.write('\tidmap config SAMDOM:range = 10000-99999\n')
-    of.write('\twinbind offline logon = yes\n')
+    if not autogen:
+        of.write('[global]\n')
+        of.write('\tsecurity = ads\n')
+        of.write('\tworkgroup = %s\n' % domain.split('.')[0].upper())
+        of.write('\trealm = %s\n' % domain.upper())
+        of.write('\tlog file = /var/log/samba/%%m.log\n')
+        of.write('\tlog level = 1\n')
+        of.write('\twinbind nss info = rfc2307\n')
+        of.write('\twinbind offline logon = yes\n')
+        of.write('\tidmap config *:backend = tdb\n')
+        of.write('\tidmap config *:range = 2000-9999\n')
+        of.write('\tidmap config SAMDOM:backend = ad\n')
+        of.write('\tidmap config SAMDOM:schema_mode = rfc2307\n')
+        of.write('\tidmap config SAMDOM:range = 10000-99999\n')
+    else:
+        of.write('[global]\n')
+        of.write('\tsecurity = ads\n')
+        of.write('\tworkgroup = %s\n' % domain.split('.')[0].upper())
+        of.write('\trealm = %s\n' % domain.upper())
+        of.write('\tlog file = /var/log/samba/%m.log\n')
+        of.write('\tlog level = 1\n')
+        of.write('\tpassdb backend = tdbsam\n')
+        of.write('\tmap to guest = Bad User\n')
+        of.write('\tlogon path = \\\\%L\\profiles\\.msprofile\n')
+        of.write('\tlogon home = \\\\%L\\%U\\.9xprofile\n')
+        of.write('\tlogon drive = P:\n')
+        of.write('\tusershare allow guests = Yes\n')
+        of.write('\twinbind offline logon = yes\n')
 
-def get_winbind_conf():
-    return '/etc/security/pam_winbind.conf'
+        of.write('[homes]\n')
+        of.write('\tcomment = Home Directories\n')
+        of.write('\tvalid users = %S, %D%w%S\n')
+        of.write('\tbrowseable = No\n')
+        of.write('\tread only = No\n')
+        of.write('\tinherit acls = Yes\n')
+
+        of.write('[profiles]\n')
+        of.write('\tcomment = Network Profiles Service\n')
+        of.write('\tpath = %H\n')
+        of.write('\tread only = No\n')
+        of.write('\tstore dos attributes = Yes\n')
+        of.write('\tcreate mask = 0600\n')
+        of.write('\tdirectory mask = 0700\n')
+
+        of.write('[users]\n')
+        of.write('\tcomment = All users\n')
+        of.write('\tpath = /home\n')
+        of.write('\tread only = No\n')
+        of.write('\tinherit acls = Yes\n')
+        of.write('\tveto files = /aquota.user/groups/shares/\n')
+
+        of.write('[groups]\n')
+        of.write('\tcomment = All groups\n')
+        of.write('\tpath = /home/groups\n')
+        of.write('\tread only = No\n')
+        of.write('\tinherit acls = Yes\n')
 
 def config_winbind_conf():
-    winbind_conf = get_winbind_conf()
+    global winbind_conf
     of = open(winbind_conf, 'w')
     of.write('[global]\n')
     of.write('\tcached_login = yes\n')
@@ -314,7 +378,7 @@ def configure_nss():
     of.write(conf)
 
 def configure_pam():
-    pam_conf = '/etc/pam.d/common-auth'
+    global pam_conf
     conf = ''
     for line in open(pam_conf):
         if 'pam_unix.so' in line:
@@ -354,12 +418,12 @@ def update_hostname(hostname, domain):
     conf += '\n'
     # Only the last one is used, may need to be manually configured
     for ip in ip_addrs:
-        conf += '%s\t%s %s\n' % (ip, shortname, hostname)
+        conf += '%s\t%s %s\n' % (ip, hostname, shortname)
     of = open(hosts, 'w')
     of.write(conf)
 
 def config_krb5_conf(domain, server):
-    krb5_conf = '/etc/krb5.conf'
+    global krb5_conf
     kof = open(krb5_conf, 'w')
     kof.write('[libdefaults]\n')
     kof.write('\tdefault_realm = %s\n' % domain)
@@ -373,7 +437,7 @@ def config_krb5_conf(domain, server):
     kof.write('\t%s = {\n\t\tkdc = %s\n\t\tadmin_server = %s\n\t\tdefault_domain = %s\n\t}\n' % (domain, server, server, domain))
 
 def join(args):
-    global admin, password, debug_level
+    global admin, password, debug_level, winbindd, smb_conf
     if getuser() != 'root':
         sys.stderr.write('adtool join must be run as root\n')
         exit(1)
@@ -395,7 +459,7 @@ def join(args):
 
     # configure smb.conf
     print 'Configuring smb.conf...'
-    config_smb_conf(args.domain, server)
+    config_smb_conf(args.domain, server, autogen=args.autogen_posix_attrs)
 
     # configure pam_winbind.conf
     print 'Configuring pam_winbind.conf...'
@@ -407,7 +471,7 @@ def join(args):
 
     # net ads join the domain
     print 'Joining the domain...'
-    cmd = ['net', 'ads', 'join', '-U%s%%%s' % (admin, password), '-d', debug_level, '-S', server]
+    cmd = ['net', '--configfile=%s' % get_smb_conf(), 'ads', 'join', '-U%s%%%s' % (admin, password), '-d', debug_level, '-S', server]
     if debug_level != '0':
         print ' '.join(cmd)
     ret = Popen(cmd).wait()
@@ -424,10 +488,20 @@ def join(args):
 
     # start winbindd
     print 'Starting winbindd...'
-    Popen(['/usr/sbin/winbindd', '-D']) # intentionally not waiting
+    cmd = [winbindd, '-d', debug_level, '--configfile=%s' % smb_conf, '-D']
+    if debug_level != '0':
+        print ' '.join(cmd)
+    ret = Popen(cmd).wait()
+    if ret != 0:
+        return ret
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--krb5_conf', help='Specify the location of the krb5.conf file')
+    parser.add_argument('--pam_conf', help='Specify the location of the pam.conf file')
+    parser.add_argument('--pam_winbind_conf', help='Specify the location of the pam_winbind.conf file')
+    parser.add_argument('--winbindd', help='Specify the location of the winbind daemon')
+    parser.add_argument('--smbd', help='Specify the location of the smb daemon')
     parser.add_argument('-u', help='Authenticating user')
     parser.add_argument('-w', help='Authenticating password')
     parser.add_argument('-d', help='debug level')
@@ -469,7 +543,14 @@ if __name__ == "__main__":
     attrs_parser.add_argument('attributes', nargs='*')
     attrs_parser.set_defaults(func=attrs)
 
+    setattrs_parser = subparsers.add_parser('setattrs')
+    setattrs_parser.add_argument('object', help='distinguishedName')
+    setattrs_parser.add_argument('attribute')
+    setattrs_parser.add_argument('value')
+    setattrs_parser.set_defaults(func=setattrs)
+
     join_parser = subparsers.add_parser('join')
+    join_parser.add_argument('--autogen-posix-attrs', action='store_true')
     join_parser.add_argument('domain')
     join_parser.add_argument('-n', help='Join as hostname')
     join_parser.add_argument('servers', nargs='*')
@@ -480,6 +561,17 @@ if __name__ == "__main__":
     timesync_parser.set_defaults(func=timesync)
 
     args = parser.parse_args()
+
+    if args.krb5_conf:
+        krb5_conf = args.krb5_conf
+    if args.pam_conf:
+        pam_conf = args.pam_conf
+    if args.pam_winbind_conf:
+        winbind_conf = args.pam_winbind_conf
+    if args.winbindd:
+        winbindd = args.winbindd
+    if args.smbd:
+        smbd = args.smbd
 
     if args.u:
         admin = args.u
