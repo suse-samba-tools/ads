@@ -290,7 +290,7 @@ def config_ntp(servers):
     of.write(config)
 
     # tell ntp to update the time
-    Popen(['/usr/sbin/ntpdate', server]).wait()
+    Popen(['/usr/sbin/ntpdate', servers[0]]).wait()
 
     # restart ntp
     Popen(['service', 'ntpd', 'start']).wait()
@@ -384,7 +384,7 @@ def configure_pam():
         if 'pam_unix.so' in line:
             conf += 'auth\tsufficient\tpam_unix.so try_first_pass\n'
             conf += 'auth\trequired\tpam_winbind.so use_first_pass\n'
-        else:
+        elif not 'pam_winbind.so' in line:
             conf += line
     of = open(pam_conf, 'w')
     of.write(conf)
@@ -451,7 +451,10 @@ def join(args):
 
     # Configure ntp
     print 'Adding ntp servers and time syncing with AD...'
-    config_ntp(args.servers)
+    if args.servers:
+        config_ntp(args.servers)
+    else:
+        config_ntp([server])
 
     # Update hostname
     print 'Updating hostname...'
