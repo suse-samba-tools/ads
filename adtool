@@ -133,6 +133,25 @@ def nss(args):
     else:
         print_help()
 
+def unix_enable_user(name, passwd, container=None):
+    global admin, password, debug_level
+    admin, password = get_creds(admin, password)
+    if not container:
+        container = 'cn=users,%s' % realm_to_dn(get_default_realm())
+
+    data = passwd.split(':')
+    attrs = {'uidNumber': data[2], 'gidNumber': data[3], 'gecos': data[4], 'homeDirectory': data[5], 'loginShell': data[6]}
+    ldif = 'dn: cn=%s,%s\n' % (name, container)
+    for key in attrs.keys():
+        ldif += 'changetype: modify\n'
+        ldif += 'replace: %s\n' % key
+        ldif += '%s: %s\n' % (key, attrs[key])
+
+    cmd = ['ldapmodify', '-d', debug_level, '-x', '-h', get_default_realm(), '-D', '%s@%s' % (admin, get_default_realm()), '-w', password]
+    if debug_level != '0':
+        print ' '.join(cmd)
+    Popen(cmd, stdin=PIPE).communicate(input=ldif)
+
 def create(args):
     global admin, password, debug_level
     admin, password = get_creds(admin, password)
