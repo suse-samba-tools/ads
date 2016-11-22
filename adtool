@@ -419,8 +419,9 @@ def configure_pam_password(pam_conf):
     for line in open(pam_conf):
         if line.strip()[0] != '#' and first_line:
             conf += 'password\tsufficient\tpam_winbind.so\n'
+            conf += 'password\trequisite\tpam_cracklib.so\n'
             first_line = False
-        elif not 'pam_winbind.so' in line:
+        elif not 'pam_winbind.so' in line and not 'pam_cracklib.so' in line:
             conf += line
     of = open(pam_conf, 'w')
     of.write(conf)
