@@ -501,6 +501,7 @@ def config_krb5_conf(domain, server):
     kof.write('\tproxiable = true\n')
     kof.write('\tdns_lookup_realm = true\n')
     kof.write('\tdns_lookup_kdc = true\n')
+    kof.write('\tudp_preference_limit = 1\n') # disable UDP packets
     kof.write('\n\n[realms]\n')
     kof.write('\t%s = {\n\t\tkdc = %s\n\t\tadmin_server = %s\n\t\tdefault_domain = %s\n\t}\n' % (domain, server, server, domain))
 
