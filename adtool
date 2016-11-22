@@ -7,7 +7,10 @@ from base64 import b64decode
 krb5_conf = '/etc/krb5.conf'
 winbindd = '/usr/sbin/winbindd'
 smbd = '/usr/sbin/smbd'
-pam_conf = '/etc/pam.d/common-auth'
+pam_account_conf = '/etc/pam.d/common-account'
+pam_auth_conf = '/etc/pam.d/common-auth'
+pam_password_conf = '/etc/pam.d/common-password'
+pam_session_conf = '/etc/pam.d/common-session'
 winbind_conf = '/etc/security/pam_winbind.conf'
 admin = None
 password = None
@@ -386,17 +389,60 @@ def configure_nss():
     else:
         follow_symlinks(['/lib64/libnss_winbind.so', '/lib/libnss_winbind.so'])
 
-def configure_pam():
-    global pam_conf
+def configure_pam_auth(pam_conf):
     conf = ''
     for line in open(pam_conf):
-        if 'pam_unix.so' in line:
+        if 'pam_unix.so' in line and line.split()[0] == 'auth':
             conf += 'auth\tsufficient\tpam_unix.so try_first_pass\n'
             conf += 'auth\trequired\tpam_winbind.so use_first_pass\n'
         elif not 'pam_winbind.so' in line:
             conf += line
     of = open(pam_conf, 'w')
     of.write(conf)
+
+def configure_pam_account(pam_conf):
+    conf = ''
+    for line in open(pam_conf):
+        if 'pam_unix.so' in line and line.split()[0] == 'account':
+            conf += 'account\trequisite\tpam_unix.so\ttry_first_pass\n'
+            conf += 'account\tsufficient\tpam_localuser.so\n'
+            conf += 'account\trequired\tpam_winbind.so\tuse_first_pass\n'
+        elif not 'pam_winbind.so' in line and not 'pam_localuser.so' in line:
+            conf += line
+    of = open(pam_conf, 'w')
+    of.write(conf)
+
+def configure_pam_password(pam_conf):
+    conf = ''
+    first_line = True
+    for line in open(pam_conf):
+        if line.strip()[0] != '#' and first_line:
+            conf += 'password\tsufficient\tpam_winbind.so\n'
+            first_line = False
+        elif not 'pam_winbind.so' in line:
+            conf += line
+    of = open(pam_conf, 'w')
+    of.write(conf)
+
+def configure_pam_session(pam_conf):
+    conf = ''
+    for line in open(pam_conf):
+        if 'pam_unix.so' in line and line.split()[0] == 'session':
+            conf += 'session\trequired\tpam_unix.so\ttry_first_pass\n'
+            conf += 'session\trequired\tpam_winbind.so\n'
+        elif not 'pam_winbind.so' in line:
+            conf += line
+    of = open(pam_conf, 'w')
+    of.write(conf)
+
+def configure_pam():
+    global pam_account_conf, pam_auth_conf, pam_password_conf, pam_session_conf
+
+    configure_pam_auth(pam_auth_conf)
+    configure_pam_account(pam_account_conf)
+    configure_pam_password(pam_password_conf)
+    configure_pam_session(pam_session_conf)
+
     if not os.path.exists('/lib64/security/pam_winbind.so') and not os.path.exists('/lib/security/pam_winbind.so'):
         sys.stderr.write('Cannot find /lib{64}/security/pam_winbind.so, check that you\'ve installed the library')
     else:
@@ -522,7 +568,10 @@ def join(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--krb5_conf', help='Specify the location of the krb5.conf file')
-    parser.add_argument('--pam_conf', help='Specify the location of the pam.conf file')
+    parser.add_argument('--pam_account_conf', help='Specify the location of the pam account conf file')
+    parser.add_argument('--pam_auth_conf', help='Specify the location of the pam auth conf file')
+    parser.add_argument('--pam_password_conf', help='Specify the location of the pam password file')
+    parser.add_argument('--pam_session_conf', help='Specify the location of the pam session file')
     parser.add_argument('--pam_winbind_conf', help='Specify the location of the pam_winbind.conf file')
     parser.add_argument('--winbindd', help='Specify the location of the winbind daemon')
     parser.add_argument('--smbd', help='Specify the location of the smb daemon')
@@ -592,8 +641,14 @@ if __name__ == "__main__":
 
     if args.krb5_conf:
         krb5_conf = args.krb5_conf
-    if args.pam_conf:
-        pam_conf = args.pam_conf
+    if args.pam_account_conf:
+        pam_account_conf = args.pam_account_conf
+    if args.pam_auth_conf:
+        pam_auth_conf = args.pam_auth_conf
+    if args.pam_password_conf:
+        pam_password_conf = args.pam_password_conf
+    if args.pam_session_conf:
+        pam_session_conf = args.pam_session_conf
     if args.pam_winbind_conf:
         winbind_conf = args.pam_winbind_conf
     if args.winbindd:
