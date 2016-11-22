@@ -330,6 +330,10 @@ def config_smb_conf(domain, server, autogen=False):
         of.write('\tlogon drive = P:\n')
         of.write('\tusershare allow guests = Yes\n')
         of.write('\twinbind offline logon = yes\n')
+        of.write('\ttemplate shell = /bin/bash\n')
+        of.write('\ttemplate homedir = /home/%D/%U\n')
+        of.write('\tidmap gid = 10000-20000\n')
+        of.write('\tidmap uid = 10000-20000\n')
 
         of.write('[homes]\n')
         of.write('\tcomment = Home Directories\n')
