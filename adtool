@@ -58,13 +58,13 @@ def group_list(admin, password, debug_level):
         print ' '.join(cmd)
     return Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
 
-def getpwnam(user, admin, password, debug_level):
+def getpwnam(user, debug_level):
     cmd = ['getent', 'passwd', user]
     if debug_level != '0':
         print ' '.join(cmd)
     return Popen(cmd, stdout=PIPE).communicate()[0].strip()
 
-def getgrnam(group, admin, password, debug_level):
+def getgrnam(group, debug_level):
     cmd = ['getent', 'group', group]
     if debug_level != '0':
         print ' '.join(cmd)
@@ -75,7 +75,7 @@ def getpwent(admin, password, debug_level):
     if debug_level != '0':
         print ' '.join(cmd)
     ulist = Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
-    ulist.extend([getpwnam('%s@%s' % (user, get_default_realm()), admin, password, debug_level) for user in user_list(admin, password, debug_level)])
+    ulist.extend([getpwnam('%s@%s' % (user, get_default_realm()), debug_level) for user in user_list(admin, password, debug_level)])
     return ulist
 
 def getgrent(admin, password, debug_level):
@@ -83,7 +83,7 @@ def getgrent(admin, password, debug_level):
     if debug_level != '0':
         print ' '.join(cmd)
     glist = Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
-    glist.extend([getgrnam('%s@%s' % (group, get_default_realm()), admin, password, debug_level) for group in group_list(admin, password, debug_level)])
+    glist.extend([getgrnam('%s@%s' % (group, get_default_realm()), debug_level) for group in group_list(admin, password, debug_level)])
     return glist
 
 def get_creds(admin, password):
@@ -106,25 +106,26 @@ def pam_conv(auth, query_list):
 
 def nss(args):
     global admin, password, debug_level
-    admin, password = get_creds(admin, password)
     if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
-        pw = getpwnam(args.object, admin, password, debug_level)
+        pw = getpwnam(args.object, debug_level)
         if not pw:
-            pw = getpwnam('%s@%s' % (args.object, get_default_realm()), admin, password, debug_level)
+            pw = getpwnam('%s@%s' % (args.object, get_default_realm()), debug_level)
         if pw:
             print pw
     elif args.s2 == 'getgrnam' or args.s2 == 'getgrid':
-        gr = getgrnam(args.object, admin, password, debug_level)
+        gr = getgrnam(args.object, debug_level)
         if not gr:
-            gr = getgrnam('%s@%s' % (args.object, get_default_realm()), admin, password, debug_level)
+            gr = getgrnam('%s@%s' % (args.object, get_default_realm()), debug_level)
         if gr:
             print gr
     elif args.s2 == 'getpwent' or args.s2 == 'users':
+        admin, password = get_creds(admin, password)
         ulist = getpwent(admin, password, debug_level)
         for pw in ulist:
             if pw.strip():
                 print pw
     elif args.s2 == 'getgrent' or args.s2 == 'groups':
+        admin, password = get_creds(admin, password)
         glist = getgrent(admin, password, debug_level)
         for gr in glist:
             if gr.strip():
