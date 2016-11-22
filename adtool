@@ -365,6 +365,11 @@ def config_winbind_conf():
     of.write('\twarn_pwd_expire = 14\n')
     of.write('\tmkhomedir = yes\n')
 
+def follow_symlinks(files):
+    for name in files:
+        if os.path.exists(name) and os.path.islink(name):
+            print '%s links to %s' % (name, os.path.realpath(name))
+
 def configure_nss():
     nsswitch = '/etc/nsswitch.conf'
     conf = ''
@@ -378,6 +383,8 @@ def configure_nss():
     of.write(conf)
     if not os.path.exists('/lib64/libnss_winbind.so') and not os.path.exists('/lib/libnss_winbind.so'):
         sys.stderr.write('Cannot find /lib{64}/libnss_winbind.so, check that you\'ve installed the library')
+    else:
+        follow_symlinks(['/lib64/libnss_winbind.so', '/lib/libnss_winbind.so'])
 
 def configure_pam():
     global pam_conf
@@ -390,8 +397,18 @@ def configure_pam():
             conf += line
     of = open(pam_conf, 'w')
     of.write(conf)
-    if not os.path.exists('/lib64/security/pam_winbind.so') and not os.path.exists('/lib64/security/pam_winbind.so'):
+    if not os.path.exists('/lib64/security/pam_winbind.so') and not os.path.exists('/lib/security/pam_winbind.so'):
         sys.stderr.write('Cannot find /lib{64}/security/pam_winbind.so, check that you\'ve installed the library')
+    else:
+        follow_symlinks(['/lib64/security/pam_winbind.so', '/lib/security/pam_winbind.so'])
+
+def configure(args):
+    if args.s2 == 'pam':
+        configure_pam()
+    elif args.s2 == 'nss':
+        configure_nss()
+    else:
+        print_help()
 
 def update_hostname(hostname, domain):
     # Retrieve the current hostname if one was specified
@@ -566,6 +583,10 @@ if __name__ == "__main__":
     timesync_parser = subparsers.add_parser('timesync')
     timesync_parser.add_argument('-s', help='Server to sync with')
     timesync_parser.set_defaults(func=timesync)
+
+    configure_parser = subparsers.add_parser('configure')
+    configure_parser.add_argument('s2', choices=['pam', 'nss'])
+    configure_parser.set_defaults(func=configure)
 
     args = parser.parse_args()
 
