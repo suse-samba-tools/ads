@@ -142,25 +142,34 @@ def unix_enable_user(name, passwd, container=None):
     data = passwd.split(':')
     attrs = {'uidNumber': data[2], 'gidNumber': data[3], 'gecos': data[4], 'homeDirectory': data[5], 'loginShell': data[6]}
     ldif = 'dn: cn=%s,%s\n' % (name, container)
+    ldif += 'changetype: modify\n'
     for key in attrs.keys():
-        ldif += 'changetype: modify\n'
-        ldif += 'replace: %s\n' % key
-        ldif += '%s: %s\n' % (key, attrs[key])
+        if attrs[key]:
+            ldif += 'replace: %s\n' % key
+            ldif += '%s: %s\n' % (key, attrs[key])
 
     cmd = ['ldapmodify', '-d', debug_level, '-x', '-h', get_default_realm(), '-D', '%s@%s' % (admin, get_default_realm()), '-w', password]
     if debug_level != '0':
         print ' '.join(cmd)
-    Popen(cmd, stdin=PIPE).communicate(input=ldif)
+        print ldif
+    p = Popen(cmd, stdin=PIPE)
+    p.communicate(input=ldif)
+    return p.returncode
 
 def create(args):
     global admin, password, debug_level
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
-        new_user_pass = getpass("New password: ")
-        cmd = ['net', '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
-        if debug_level != '0':
-            print ' '.join(cmd)
-        return Popen(cmd).wait()
+        if not args.e:
+            new_user_pass = getpass("New password: ")
+            cmd = ['net', '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+            if debug_level != '0':
+                print ' '.join(cmd)
+            ret = Popen(cmd).wait()
+            if ret:
+                return ret
+        if args.i:
+            return unix_enable_user(args.object, args.i, args.c)
     elif args.s2 == 'group':
         cmd = ['net', '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
@@ -321,66 +330,30 @@ def config_ntp(servers):
 def config_smb_conf(domain, server, autogen=False):
     smb_conf = get_smb_conf()
     of = open(smb_conf, 'w')
-    if not autogen:
-        of.write('[global]\n')
-        of.write('\tsecurity = ads\n')
-        of.write('\tworkgroup = %s\n' % domain.split('.')[0].upper())
-        of.write('\trealm = %s\n' % domain.upper())
-        of.write('\tlog file = /var/log/samba/%%m.log\n')
-        of.write('\tlog level = 1\n')
-        of.write('\twinbind nss info = rfc2307\n')
-        of.write('\twinbind offline logon = yes\n')
-        of.write('\tidmap config *:backend = tdb\n')
-        of.write('\tidmap config *:range = 2000-9999\n')
-        of.write('\tidmap config SAMDOM:backend = ad\n')
-        of.write('\tidmap config SAMDOM:schema_mode = rfc2307\n')
-        of.write('\tidmap config SAMDOM:range = 10000-99999\n')
-    else:
-        of.write('[global]\n')
-        of.write('\tsecurity = ads\n')
-        of.write('\tworkgroup = %s\n' % domain.split('.')[0].upper())
-        of.write('\trealm = %s\n' % domain.upper())
-        of.write('\tlog file = /var/log/samba/%m.log\n')
-        of.write('\tlog level = 1\n')
-        of.write('\tpassdb backend = tdbsam\n')
-        of.write('\tmap to guest = Bad User\n')
-        of.write('\tlogon path = \\\\%L\\profiles\\.msprofile\n')
-        of.write('\tlogon home = \\\\%L\\%U\\.9xprofile\n')
-        of.write('\tlogon drive = P:\n')
-        of.write('\tusershare allow guests = Yes\n')
-        of.write('\twinbind offline logon = yes\n')
+    of.write('[global]\n')
+    of.write('\tsecurity = ads\n')
+    of.write('\tworkgroup = %s\n' % domain.split('.')[0].upper())
+    of.write('\trealm = %s\n' % domain.upper())
+    of.write('\tlog file = /var/log/samba/%m.log\n')
+    of.write('\tlog level = 1\n')
+    of.write('\tpassdb backend = tdbsam\n')
+    of.write('\tmap to guest = Bad User\n')
+    of.write('\tlogon path = \\\\%L\\profiles\\.msprofile\n')
+    of.write('\tlogon home = \\\\%L\\%U\\.9xprofile\n')
+    of.write('\tlogon drive = P:\n')
+    of.write('\tusershare allow guests = Yes\n')
+    of.write('\twinbind offline logon = yes\n')
+    if autogen:
+        of.write('\twinbind nss info = template\n')
         of.write('\ttemplate shell = /bin/bash\n')
         of.write('\ttemplate homedir = /home/%D/%U\n')
-        of.write('\tidmap gid = 10000-20000\n')
-        of.write('\tidmap uid = 10000-20000\n')
-
-        of.write('[homes]\n')
-        of.write('\tcomment = Home Directories\n')
-        of.write('\tvalid users = %S, %D%w%S\n')
-        of.write('\tbrowseable = No\n')
-        of.write('\tread only = No\n')
-        of.write('\tinherit acls = Yes\n')
-
-        of.write('[profiles]\n')
-        of.write('\tcomment = Network Profiles Service\n')
-        of.write('\tpath = %H\n')
-        of.write('\tread only = No\n')
-        of.write('\tstore dos attributes = Yes\n')
-        of.write('\tcreate mask = 0600\n')
-        of.write('\tdirectory mask = 0700\n')
-
-        of.write('[users]\n')
-        of.write('\tcomment = All users\n')
-        of.write('\tpath = /home\n')
-        of.write('\tread only = No\n')
-        of.write('\tinherit acls = Yes\n')
-        of.write('\tveto files = /aquota.user/groups/shares/\n')
-
-        of.write('[groups]\n')
-        of.write('\tcomment = All groups\n')
-        of.write('\tpath = /home/groups\n')
-        of.write('\tread only = No\n')
-        of.write('\tinherit acls = Yes\n')
+        of.write('\tidmap config *:backend = tdb\n')
+        of.write('\tidmap config *:range = 2000-99999\n')
+    else:
+        of.write('\tidmap config *:backend = ad\n')
+        of.write('\tidmap config *:schema_mode = rfc2307\n')
+        of.write('\tidmap config *:range = 2000-99999\n')
+        of.write('\twinbind nss info = rfc2307\n')
 
 def config_winbind_conf():
     global winbind_conf
@@ -591,6 +564,9 @@ def join(args):
     if ret != 0:
         return ret
 
+def info(args):
+    pass
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--krb5_conf', help='Specify the location of the krb5.conf file')
@@ -617,6 +593,9 @@ if __name__ == "__main__":
     user_parser.set_defaults(func=user)
 
     create_parser = subparsers.add_parser('create')
+    create_parser.add_argument('-e', help='Operate on an existing object', action='store_true')
+    create_parser.add_argument('-i', help='Passwd line for unix enable')
+    create_parser.add_argument('-c', help='Container to search in')
     create_parser.add_argument('s2', choices=['user', 'group'])
     create_parser.add_argument('object', nargs='?')
     create_parser.set_defaults(func=create)
@@ -662,6 +641,10 @@ if __name__ == "__main__":
     configure_parser = subparsers.add_parser('configure')
     configure_parser.add_argument('s2', choices=['pam', 'nss'])
     configure_parser.set_defaults(func=configure)
+
+    info_parser = subparsers.add_parser('info')
+    info_parser.add_argument('s2', choices=['domain'])
+    info_parser.set_defaults(func=info)
 
     args = parser.parse_args()
 
