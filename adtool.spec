@@ -21,10 +21,16 @@ Tool for working with ad users on samba/winbind
 %setup -q
 
 %build
+%configure --prefix=%{_prefix} \
+    --localstatedir=%{_localstatedir} \
+    --sysconfdir=%{_sysconfdir} \
+    --libdir=%{_libdir} \
+    --libexecdir=%{_libdir}
+make
 
 %install
 %{__mkdir} -p $RPM_BUILD_ROOT/%{_bindir}
-%{__install} -D -m 0755 adtool $RPM_BUILD_ROOT/%{_bindir}/adtool
+%{__install} -D -m 0755 src/adtool $RPM_BUILD_ROOT/%{_bindir}/adtool
 
 %clean
 %{__rm} -rf $RPM_BUILD_ROOT

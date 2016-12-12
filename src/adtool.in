@@ -4,14 +4,14 @@ from getpass import getpass, getuser
 from subprocess import Popen, PIPE
 from base64 import b64decode
 
-krb5_conf = '/etc/krb5.conf'
-winbindd = '/usr/sbin/winbindd'
-smbd = '/usr/sbin/smbd'
-pam_account_conf = '/etc/pam.d/common-account'
-pam_auth_conf = '/etc/pam.d/common-auth'
-pam_password_conf = '/etc/pam.d/common-password'
-pam_session_conf = '/etc/pam.d/common-session'
-winbind_conf = '/etc/security/pam_winbind.conf'
+krb5_conf = '@KRB5CONF@'
+winbindd = '@WINBINDD@'
+smbd = '@SMBD@'
+pam_account_conf = '@PAM_D@/common-account'
+pam_auth_conf = '@PAM_D@/common-auth'
+pam_password_conf = '@PAM_D@/common-password'
+pam_session_conf = '@PAM_D@/common-session'
+winbind_conf = '@WINBINDCONF@'
 admin = None
 password = None
 debug_level = '0'
@@ -381,10 +381,10 @@ def configure_nss():
             conf += line
     of = open(nsswitch, 'w')
     of.write(conf)
-    if not os.path.exists('/lib64/libnss_winbind.so') and not os.path.exists('/lib/libnss_winbind.so'):
-        sys.stderr.write('Cannot find /lib{64}/libnss_winbind.so, check that you\'ve installed the library')
+    if not os.path.exists('@LIBDIR@/libnss_winbind.so'):
+        sys.stderr.write('Cannot find @LIBDIR@/libnss_winbind.so, check that you\'ve installed the library')
     else:
-        follow_symlinks(['/lib64/libnss_winbind.so', '/lib/libnss_winbind.so'])
+        follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
 
 def configure_pam_auth(pam_conf):
     conf = ''
@@ -441,10 +441,10 @@ def configure_pam():
     configure_pam_password(pam_password_conf)
     configure_pam_session(pam_session_conf)
 
-    if not os.path.exists('/lib64/security/pam_winbind.so') and not os.path.exists('/lib/security/pam_winbind.so'):
-        sys.stderr.write('Cannot find /lib{64}/security/pam_winbind.so, check that you\'ve installed the library')
+    if not os.path.exists('@LIBDIR@/security/pam_winbind.so'):
+        sys.stderr.write('Cannot find @LIBDIR@/security/pam_winbind.so, check that you\'ve installed the library')
     else:
-        follow_symlinks(['/lib64/security/pam_winbind.so', '/lib/security/pam_winbind.so'])
+        follow_symlinks(['@LIBDIR@/security/pam_winbind.so'])
 
 def configure(args):
     if args.s2 == 'pam':
