@@ -347,7 +347,7 @@ def config_smb_conf(domain, server, autogen=False):
         of.write('\twinbind nss info = template\n')
         of.write('\ttemplate shell = /bin/bash\n')
         of.write('\ttemplate homedir = /home/%D/%U\n')
-        of.write('\tidmap config *:backend = tdb\n')
+        of.write('\tidmap config *:backend = autorid\n')
         of.write('\tidmap config *:range = 2000-99999\n')
     else:
         of.write('\tidmap config *:backend = ad\n')
