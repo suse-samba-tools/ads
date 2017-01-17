@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!@PYTHON@
 import sys, argparse, PAM, struct, netifaces, os.path
 from getpass import getpass, getuser
 from subprocess import Popen, PIPE
