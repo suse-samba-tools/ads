@@ -382,7 +382,11 @@ def configure_nss():
     of = open(nsswitch, 'w')
     of.write(conf)
     if not os.path.exists('@LIBDIR@/libnss_winbind.so'):
-        sys.stderr.write('Cannot find @LIBDIR@/libnss_winbind.so, check that you\'ve installed the library')
+        if os.path.exists('@LIBDIR@/libnss_winbind.so.2'):
+            os.symlink('@LIBDIR@/libnss_winbind.so.2', '@LIBDIR@/libnss_winbind.so')
+            follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
+        else:
+            sys.stderr.write('Cannot find @LIBDIR@/libnss_winbind.so, check that you\'ve installed the library')
     else:
         follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
 
