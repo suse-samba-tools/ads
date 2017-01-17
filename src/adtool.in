@@ -1,8 +1,8 @@
 #!@PYTHON@
-import sys, argparse, PAM, struct, netifaces, os.path
+import sys, argparse, PAM, struct, netifaces, os.path, ldap
 from getpass import getpass, getuser
 from subprocess import Popen, PIPE
-from base64 import b64decode
+from base64 import b64decode, b64encode
 
 krb5_conf = '@KRB5CONF@'
 winbindd = '@WINBINDD@'
@@ -254,31 +254,34 @@ def convert_objsid_to_sidstr(binary):
 def realm_to_dn(realm):
     return ','.join(['dc=%s' % part for part in realm.split('.')])
 
+def print_ldap_object(obj, sidstr):
+    for key in obj.keys():
+        if key in ['logonHours', 'objectGUID', 'objectSid']:
+            if key == 'objectSid' and sidstr:
+                obj[key] = [convert_objsid_to_sidstr(o) for o in obj[key]]
+            else:
+                obj[key] = [b64encode(o) for o in obj[key]]
+            for ob in obj[key]:
+                print '%s:: %s' % (key, ob)
+        else:
+            for ob in obj[key]:
+                print '%s: %s' % (key, ob)
+
 def attrs(args):
     global admin, password, debug_level
     if args.object:
         admin, password = get_creds(admin, password)
-        cmd = ['ldapsearch', '-d', debug_level, '-LLL', '-x', '-h', get_default_realm(), '-D', '%s@%s' % (admin, get_default_realm()), '-w', password]
+        l = ldap.open(get_default_realm())
+        l.bind_s('%s@%s' % (admin, get_default_realm()), password)
         container = args.c
         if not container and args.g:
             container = 'cn=groups,%s' % realm_to_dn(get_default_realm())
         elif not container:
             container = 'cn=users,%s' % realm_to_dn(get_default_realm())
-        cmd.extend(['-b', container])
-        cmd.extend(['(cn=%s)' % args.object])
-        if args.attributes:
-            cmd.extend(args.attributes)
-        if debug_level != '0':
-            print ' '.join(cmd)
-        p = Popen(cmd, stdout=PIPE)
-        results = p.communicate()[0].strip().split('\n')[1:]
-        if args.b:
-            for i in range(0, len(results)):
-                if results[i].split('::')[0] == 'objectSid':
-                    objsid = results[i].split('::')[-1].strip()
-                    results[i] = results[i].replace(objsid, convert_objsid_to_sidstr(b64decode(objsid)))
-        print '\n'.join(results)
-        return p.returncode
+        results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % args.object, args.attributes)
+        for result in results:
+            print_ldap_object(result[1], args.b)
+            print
     else:
         print_help()
 

@@ -13,6 +13,7 @@ Source:		%{name}-%{version}.tar.gz
 Requires:   samba-client
 Requires:   python-pam
 Requires:   python-netifaces
+Requires:   python-ldap
 
 %description
 Tool for working with ad users on samba/winbind
