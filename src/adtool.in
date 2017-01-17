@@ -136,25 +136,14 @@ def nss(args):
 def unix_enable_user(name, passwd, container=None):
     global admin, password, debug_level
     admin, password = get_creds(admin, password)
-    if not container:
-        container = user_container()
-
+    l = ldap_open(get_default_realm(), admin, password)
+    dn = getdn(args.object)
     data = passwd.split(':')
-    attrs = {'uidNumber': data[2], 'gidNumber': data[3], 'gecos': data[4], 'homeDirectory': data[5], 'loginShell': data[6]}
-    ldif = 'dn: cn=%s,%s\n' % (name, container)
-    ldif += 'changetype: modify\n'
-    for key in attrs.keys():
-        if attrs[key]:
-            ldif += 'replace: %s\n' % key
-            ldif += '%s: %s\n' % (key, attrs[key])
 
-    cmd = ['ldapmodify', '-d', debug_level, '-x', '-h', get_default_realm(), '-D', '%s@%s' % (admin, get_default_realm()), '-w', password]
-    if debug_level != '0':
-        print ' '.join(cmd)
-        print ldif
-    p = Popen(cmd, stdin=PIPE)
-    p.communicate(input=ldif)
-    return p.returncode
+    try:
+        l.modify_s(dn, [(1, 'uidNumber', None), (0, 'uidNumber', [data[2]]), (1, 'gidNumber', None), (0, 'gidNumber', [data[3]]), (1, 'gecos', None), (0, 'gecos', [data[4]]), (1, 'homeDirectory', None), (0, 'homeDirectory', [data[5]]), (1, 'loginShell', None), (0, 'loginShell', [data[6]])])
+    except ldap.NO_SUCH_ATTRIBUTE:
+        l.add_s(dn, [('uidNumber', [data[2]]), ('gidNumber', [data[3]]), ('gecos', [data[4]]), ('homeDirectory', [data[5]]), ('loginShell', [data[6]])])
 
 def create(args):
     global admin, password, debug_level
@@ -303,22 +292,24 @@ def attrs(args):
     else:
         print_help()
 
+def getdn(cn, container=None):
+    global admin, password
+    admin, password = get_creds(admin, password)
+    l = ldap_open(get_default_realm(), admin, password)
+    if not container:
+        container = user_container()
+    results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % cn, ['distinguishedName'])
+    return results[0][1]['distinguishedName'][-1]
+
 def setattrs(args):
     global admin, password, debug_level
-
-    ldif = 'dn: %s\n' % args.object
-    ldif += 'changetype: modify\n'
-    ldif += 'replace: %s\n' % args.attribute
-    ldif += '%s: %s\n' % (args.attribute, args.value)
-
-    if ldif:
-        admin, password = get_creds(admin, password)
-        cmd = ['ldapmodify', '-d', debug_level, '-x', '-h', get_default_realm(), '-D', '%s@%s' % (admin, get_default_realm()), '-w', password]
-        if debug_level != '0':
-            print ' '.join(cmd)
-        Popen(cmd, stdin=PIPE).communicate(input=ldif)
-    else:
-        print_help()
+    admin, password = get_creds(admin, password)
+    l = ldap_open(get_default_realm(), admin, password)
+    dn = getdn(args.object)
+    try:
+        l.modify_s(dn, [(1, args.attribute, None), (0, args.attribute, [args.value])])
+    except ldap.NO_SUCH_ATTRIBUTE:
+        l.add_s(dn, [(args.attribute, [args.value])])
 
 def timesync(args):
     if args.s:
