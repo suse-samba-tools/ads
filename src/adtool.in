@@ -254,6 +254,27 @@ def convert_objsid_to_sidstr(binary):
 def realm_to_dn(realm):
     return ','.join(['dc=%s' % part for part in realm.split('.')])
 
+ldap_open_connections = {}
+def ldap_open(realm, user, password):
+    global ldap_open_connections
+    key = '%s:%s' % (realm, user)
+    if key not in ldap_open_connections.keys():
+        l = ldap.open(realm)
+        l.bind_s('%s@%s' % (user, realm), password)
+        ldap_open_connections[key] = l
+    return ldap_open_connections[key]
+
+wkguiduc = 'A9D1CA15768811D1ADED00C04FD8D5CD'
+uc = None
+def user_container():
+    global admin, password, uc, wkguiduc
+    if not uc:
+        admin, password = get_creds(admin, password)
+        l = ldap_open(get_default_realm(), admin, password)
+        results = l.search_s('<WKGUID=%s,%s>' % (wkguiduc, realm_to_dn(get_default_realm())), ldap.SCOPE_SUBTREE, '(objectClass=container)', ['distinguishedName'])
+        uc = results[0][1]['distinguishedName'][-1]
+    return uc
+
 def print_ldap_object(obj, sidstr):
     for key in obj.keys():
         if key in ['logonHours', 'objectGUID', 'objectSid']:
@@ -271,13 +292,10 @@ def attrs(args):
     global admin, password, debug_level
     if args.object:
         admin, password = get_creds(admin, password)
-        l = ldap.open(get_default_realm())
-        l.bind_s('%s@%s' % (admin, get_default_realm()), password)
+        l = ldap_open(get_default_realm(), admin, password)
         container = args.c
-        if not container and args.g:
-            container = 'cn=groups,%s' % realm_to_dn(get_default_realm())
-        elif not container:
-            container = 'cn=users,%s' % realm_to_dn(get_default_realm())
+        if not container:
+            container = user_container()
         results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % args.object, args.attributes)
         for result in results:
             print_ldap_object(result[1], args.b)
