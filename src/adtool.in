@@ -3,6 +3,8 @@ import sys, argparse, PAM, struct, netifaces, os.path, ldap
 from getpass import getpass, getuser
 from subprocess import Popen, PIPE
 from base64 import b64decode, b64encode
+from ldap.modlist import addModlist as addlist
+from ldap.modlist import modifyModlist as modlist
 
 krb5_conf = '@KRB5CONF@'
 winbindd = '@WINBINDD@'
@@ -140,10 +142,13 @@ def unix_enable_user(name, passwd, container=None):
     dn = getdn(args.object)
     data = passwd.split(':')
 
+    ldif_old = {'uidNumber': [''], 'gidNumber': [''], 'gecos': [''], 'homeDirectory': [''], 'loginShell': ['']}
+    ldif = {'uidNumber': [data[2]], 'gidNumber': [data[3]], 'gecos': [data[4]], 'homeDirectory': [data[5]], 'loginShell': [data[6]]}
+
     try:
-        l.modify_s(dn, [(1, 'uidNumber', None), (0, 'uidNumber', [data[2]]), (1, 'gidNumber', None), (0, 'gidNumber', [data[3]]), (1, 'gecos', None), (0, 'gecos', [data[4]]), (1, 'homeDirectory', None), (0, 'homeDirectory', [data[5]]), (1, 'loginShell', None), (0, 'loginShell', [data[6]])])
+        l.modify_s(dn, modlist(ldif_old, ldif))
     except ldap.NO_SUCH_ATTRIBUTE:
-        l.add_s(dn, [('uidNumber', [data[2]]), ('gidNumber', [data[3]]), ('gecos', [data[4]]), ('homeDirectory', [data[5]]), ('loginShell', [data[6]])])
+        l.add_s(dn, addlist(ldif))
 
 def create(args):
     global admin, password, debug_level
@@ -306,10 +311,12 @@ def setattrs(args):
     admin, password = get_creds(admin, password)
     l = ldap_open(get_default_realm(), admin, password)
     dn = getdn(args.object)
+    ldif_old = {args.attribute: ['']}
+    ldif = {args.attribute: [args.value]}
     try:
-        l.modify_s(dn, [(1, args.attribute, None), (0, args.attribute, [args.value])])
+        l.modify_s(dn, modlist(ldif_old, ldif))
     except ldap.NO_SUCH_ATTRIBUTE:
-        l.add_s(dn, [(args.attribute, [args.value])])
+        l.add_s(dn, addlist(ldif))
 
 def timesync(args):
     if args.s:
