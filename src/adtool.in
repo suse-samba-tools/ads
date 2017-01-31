@@ -487,10 +487,12 @@ def update_hostname(hostname, domain):
         hostname = '%s.%s\n' % (hostname, domain)
     else:
         shortname = hostname.split('.')[0]
+    hostname = hostname.strip()
+    shortname = shortname.strip()
 
     # Update the /etc/hostname file
     hf = open('/etc/hostname', 'w')
-    hf.write('%s\n' % hostname)
+    hf.write('%s' % hostname)
 
     # Update the in-memory hostname
     Popen(['hostname', hostname]).wait()
