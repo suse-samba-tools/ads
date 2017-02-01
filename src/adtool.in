@@ -561,7 +561,7 @@ def join(args):
 
     # configure kerberos
     print 'Configuring kerberos...'
-    config_krb5_conf(args.domain, server)
+    config_krb5_conf(args.domain.upper(), server.upper())
 
     # net ads join the domain
     print 'Joining the domain...'
