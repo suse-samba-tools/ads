@@ -3,17 +3,21 @@
 #
 
 Name:		adtool
-Version:	1
+Version:	0.9
 Release:	1
-License:	GPL
-Summary:	tool for working with ad users on samba/winbind
+License:	GPL-3.0
+Summary:	Tool for working with ad users on samba/winbind
 Url:		http://www.github.com/dmulder/adtool
 Group:		Productivity/Networking/Samba
 Source:		%{name}-%{version}.tar.gz
+BuildArch:	noarch
 Requires:   samba-client
 Requires:   python-pam
 Requires:   python-netifaces
 Requires:   python-ldap
+BuildRequires:	autoconf
+BuildRequires:	automake
+BuildRequires:	python
 
 %description
 Tool for working with ad users on samba/winbind
@@ -22,6 +26,7 @@ Tool for working with ad users on samba/winbind
 %setup -q
 
 %build
+autoreconf -if
 %configure --prefix=%{_prefix} \
     --localstatedir=%{_localstatedir} \
     --sysconfdir=%{_sysconfdir} \
