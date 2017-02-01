@@ -7,3 +7,6 @@ Makefile
 Makefile.in
 missing
 src/adtool
+configure
+INSTALL
+tags
