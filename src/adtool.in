@@ -459,14 +459,13 @@ def configure_pam_session(pam_conf):
 def configure_pam():
     global pam_account_conf, pam_auth_conf, pam_password_conf, pam_session_conf
 
-    configure_pam_auth(pam_auth_conf)
-    configure_pam_account(pam_account_conf)
-    configure_pam_password(pam_password_conf)
-    configure_pam_session(pam_session_conf)
-
     if not os.path.exists('@LIBDIR@/security/pam_winbind.so'):
         sys.stderr.write('Cannot find @LIBDIR@/security/pam_winbind.so, check that you\'ve installed the library')
     else:
+        configure_pam_auth(pam_auth_conf)
+        configure_pam_account(pam_account_conf)
+        configure_pam_password(pam_password_conf)
+        configure_pam_session(pam_session_conf)
         follow_symlinks(['@LIBDIR@/security/pam_winbind.so'])
 
 def configure(args):
