@@ -6,6 +6,7 @@ from base64 import b64decode, b64encode
 from ldap.modlist import addModlist as addlist
 from ldap.modlist import modifyModlist as modlist
 
+nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
 winbindd = '@WINBINDD@'
 smbd = '@SMBD@'
@@ -391,8 +392,8 @@ def follow_symlinks(files):
         if os.path.exists(name) and os.path.islink(name):
             print '%s links to %s' % (name, os.path.realpath(name))
 
-def configure_nss():
-    nsswitch = '/etc/nsswitch.conf'
+def configure_nsswitch_conf():
+    global nsswitch
     conf = ''
     for line in open(nsswitch):
         fore = line.strip().split(':')[0]
@@ -402,14 +403,18 @@ def configure_nss():
             conf += line
     of = open(nsswitch, 'w')
     of.write(conf)
+
+def configure_nss():
     if not os.path.exists('@LIBDIR@/libnss_winbind.so'):
         if os.path.exists('@LIBDIR@/libnss_winbind.so.2'):
             os.symlink('@LIBDIR@/libnss_winbind.so.2', '@LIBDIR@/libnss_winbind.so')
             follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
+            configure_nsswitch_conf()
         else:
             sys.stderr.write('Cannot find @LIBDIR@/libnss_winbind.so, check that you\'ve installed the library\n')
     else:
         follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
+        configure_nsswitch_conf()
 
 def configure_pam_auth(pam_conf):
     conf = ''
@@ -462,7 +467,7 @@ def configure_pam():
     global pam_account_conf, pam_auth_conf, pam_password_conf, pam_session_conf
 
     if not os.path.exists('@LIBDIR@/security/pam_winbind.so'):
-        sys.stderr.write('Cannot find @LIBDIR@/security/pam_winbind.so, check that you\'ve installed the library')
+        sys.stderr.write('Cannot find @LIBDIR@/security/pam_winbind.so, check that you\'ve installed the library\n')
     else:
         configure_pam_auth(pam_auth_conf)
         configure_pam_account(pam_account_conf)
