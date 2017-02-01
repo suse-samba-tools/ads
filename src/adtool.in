@@ -290,6 +290,8 @@ def attrs(args):
         container = args.c
         if not container:
             container = user_container()
+        if debug_level != '0':
+            print 'ldapsearch', '-LLL', '-x', '-h', get_default_realm(), '-D', '%s@%s' % (admin, get_default_realm()), '-W', '-b', container, '"(cn=%s)"' % args.object, ' '.join(args.attributes)
         results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % args.object, args.attributes)
         for result in results:
             print_ldap_object(result[1], args.b)
@@ -405,7 +407,7 @@ def configure_nss():
             os.symlink('@LIBDIR@/libnss_winbind.so.2', '@LIBDIR@/libnss_winbind.so')
             follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
         else:
-            sys.stderr.write('Cannot find @LIBDIR@/libnss_winbind.so, check that you\'ve installed the library')
+            sys.stderr.write('Cannot find @LIBDIR@/libnss_winbind.so, check that you\'ve installed the library\n')
     else:
         follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
 
@@ -526,6 +528,14 @@ def config_krb5_conf(domain, server):
     kof.write('\n\n[realms]\n')
     kof.write('\t%s = {\n\t\tkdc = %s\n\t\tadmin_server = %s\n\t\tdefault_domain = %s\n\t}\n' % (domain, server, server, domain))
 
+def list_servers(domain):
+    global admin, password, debug_level
+    admin, password = get_creds(admin, password)
+    l = ldap_open(domain, admin, password)
+    container = 'OU=Domain Controllers,%s' % realm_to_dn(domain)
+    results = l.search_s(container, ldap.SCOPE_SUBTREE, '(objectCategory=computer)', ['dNSHostName'])
+    return [result[1]['dNSHostName'][-1] for result in results]
+
 def join(args):
     global admin, password, debug_level, winbindd, smb_conf
     if getuser() != 'root':
@@ -535,9 +545,8 @@ def join(args):
 
     server = None
     if not args.servers:
-        server = args.domain
-    else:
-        server = args.servers[-1]
+        args.servers = list_servers(args.domain)
+    server = args.servers[-1]
 
     # Configure ntp
     print 'Adding ntp servers and time syncing with AD...'
