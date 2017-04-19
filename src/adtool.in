@@ -553,7 +553,8 @@ def configure(args):
         print_help()
 
 def ip_addrs():
-    return [netifaces.ifaddresses(interface)[2][0]['addr'] for interface in netifaces.interfaces() if netifaces.ifaddresses(interface)[2][0]['addr'] != '127.0.0.1']
+    ifaces = [netifaces.ifaddresses(interface) for interface in netifaces.interfaces()]
+    return [data[2][0]['addr'] for data in ifaces if len(data)>2 and len(data[2])>0 and 'addr' in data[2][0] and data[2][0]['addr'] != '127.0.0.1']
 
 def update_hostname(hostname, domain):
     # Retrieve the current hostname if one was specified
