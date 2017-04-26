@@ -151,7 +151,7 @@ def get_creds(admin, password):
     if not admin:
         admin = raw_input("Username: ")
     if not password:
-        password = getpass("Password: ")
+        password = getpass("%s's Password: " % admin)
     return (admin, password)
 
 def pam_conv(auth, query_list):
