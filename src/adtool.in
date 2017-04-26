@@ -469,15 +469,18 @@ def follow_symlinks(files):
 
 def configure_nsswitch_conf():
     global nsswitch
-    conf = ''
-    for line in open(nsswitch):
-        fore = line.strip().split(':')[0]
-        if (fore == 'passwd' or fore == 'group') and 'winbind' not in line:
-            conf += '%s winbind\n' % line.rstrip()
-        else:
-            conf += line
-    of = open(nsswitch, 'w')
-    of.write(conf)
+    try:
+        conf = ''
+        for line in open(nsswitch):
+            fore = line.strip().split(':')[0]
+            if (fore == 'passwd' or fore == 'group') and 'winbind' not in line:
+                conf += '%s winbind\n' % line.rstrip()
+            else:
+                conf += line
+        of = open(nsswitch, 'w')
+        of.write(conf)
+    except IOError:
+        sys.stderr.write('Configure nsswitch failed, filename \'%s\' not found\n' % nsswitch)
 
 def configure_nss():
     if not os.path.exists('@LIBDIR@/libnss_winbind.so'):
