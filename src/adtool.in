@@ -751,6 +751,7 @@ def join(args):
                 ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
                 if ret != 0:
                     sys.stdout.write('failed\n')
+                    sys.stderr.write('The objectGUID Record will need to be created manually by running:\n# %s -U%s@%s\n' % (' '.join(cmd[:-1]), admin, args.domain))
                 else:
                     sys.stdout.write('ok\n')
 
