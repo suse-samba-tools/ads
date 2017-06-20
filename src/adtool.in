@@ -755,7 +755,18 @@ def join(args, unknownargs):
                 else:
                     sys.stdout.write('ok\n')
 
-        # TODO: Replicate the sysvol somehow!
+        # Piggy back the sysvol off the primary KDC. TODO: Replicate the sysvol for real
+        lp = param.LoadParm()
+        lp.load(get_smb_conf())
+        cmd = ['mount.cifs', '//%s/sysvol' % server, lp.get('path', 'sysvol'), '-o', 'vers=2.1,username=%s,password=\'%s\'' % (admin, password)]
+        if debug_level != '0':
+            print ' '.join(cmd[:-1]), ','.join(cmd[-1].split(',')[0:2])
+        sys.stdout.write('Mounting the sysvol share...')
+        ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
+        if ret != 0:
+            sys.stdout.write('failed\n')
+        else:
+            sys.stdout.write('ok\n')
 
         # configure smb.conf
         print 'Configuring smb.conf...'
