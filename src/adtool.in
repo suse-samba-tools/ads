@@ -802,6 +802,27 @@ def join(args, unknownargs):
     else:
         print 'Skipping pam configuration...'
 
+def unjoin(args, unknownargs):
+    global admin, password, debug_level, net
+    lp = LoadParm()
+    lp.load(get_smb_conf())
+    if lp.get('server role') == 'active directory domain controller':
+        sys.stderr.write('Cannot unjoin an active directory domain controller\nDid you mean to demote the KDC?\n')
+        exit(1)
+
+    if getuser() != 'root':
+        sys.stderr.write('adtool unjoin must be run as root\n')
+        exit(1)
+    admin, password = get_creds(admin, password)
+
+    print 'Unjoining the domain...'
+    cmd = [net, 'ads', 'leave', '-d', debug_level, '-U%s%%%s' % (admin, password)]
+    if debug_level != '0':
+        print ' '.join(cmd[:-1]), '-U%s' % admin
+    exit(Popen(cmd).wait())
+
+    # TODO: Stop the winbind service
+
 def info(args, unknownargs):
     pass
 
@@ -903,6 +924,9 @@ if __name__ == "__main__":
     join_parser.add_argument('-n', help='Join as hostname')
     join_parser.add_argument('servers', nargs='*')
     join_parser.set_defaults(func=join)
+
+    unjoin_parser = subparsers.add_parser('unjoin')
+    unjoin_parser.set_defaults(func=unjoin)
 
     timesync_parser = subparsers.add_parser('timesync')
     timesync_parser.add_argument('-s', help='Server to sync with')
