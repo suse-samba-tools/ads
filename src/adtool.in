@@ -165,7 +165,7 @@ def pam_conv(auth, query_list):
             resp.append(('', 0))
     return resp
 
-def nss(args):
+def nss(args, unknownargs):
     global admin, password, debug_level
     if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
         pw = getpwnam(args.object, debug_level)
@@ -209,7 +209,7 @@ def unix_enable_user(name, passwd, container=None):
     except ldap.NO_SUCH_ATTRIBUTE:
         l.add_s(dn, addlist(ldif))
 
-def create(args):
+def create(args, unknownargs):
     global admin, password, debug_level, net
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
@@ -231,7 +231,7 @@ def create(args):
     else:
         print_help()
 
-def delete(args):
+def delete(args, unknownargs):
     global admin, password, debug_level, net
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
@@ -247,7 +247,7 @@ def delete(args):
     else:
         print_help()
 
-def user(args):
+def user(args, unknownargs):
     global admin, password, debug_level
     if args.s2 == 'checklogin' and args.user:
         p = PAM.pam()
@@ -277,7 +277,7 @@ def user(args):
         else:
             print 'User is allowed'
 
-def passwd(args):
+def passwd(args, unknownargs):
     global admin, password, debug_level, net
     admin, password = get_creds(admin, password)
     if args.object:
@@ -341,7 +341,7 @@ def print_ldap_object(obj, sidstr):
             for ob in obj[key]:
                 print '%s: %s' % (key, ob)
 
-def attrs(args):
+def attrs(args, unknownargs):
     global admin, password, debug_level
     if args.object:
         admin, password = get_creds(admin, password)
@@ -367,7 +367,7 @@ def getdn(cn, container=None):
     results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % cn, ['distinguishedName'])
     return results[0][1]['distinguishedName'][-1]
 
-def setattrs(args):
+def setattrs(args, unknownargs):
     global admin, password, debug_level
     admin, password = get_creds(admin, password)
     l = ldap_open(get_default_realm(), admin, password)
@@ -379,7 +379,7 @@ def setattrs(args):
     except ldap.NO_SUCH_ATTRIBUTE:
         l.add_s(dn, addlist(ldif))
 
-def timesync(args):
+def timesync(args, unknownargs):
     if args.s:
         Popen(['service', 'ntpd', 'stop']).wait()
         Popen(['/usr/sbin/ntpdate', args.s]).wait()
@@ -563,7 +563,7 @@ def configure_pam():
         configure_pam_session(pam_session_conf)
         follow_symlinks(['@LIBDIR@/security/pam_winbind.so'])
 
-def configure(args):
+def configure(args, unknownargs):
     if args.s2 == 'pam':
         configure_pam()
     elif args.s2 == 'nss':
@@ -635,7 +635,7 @@ def list_servers(domain):
     results = l.search_s(container, ldap.SCOPE_SUBTREE, '(objectCategory=computer)', ['dNSHostName'])
     return [result[1]['dNSHostName'][-1] for result in results]
 
-def join(args):
+def join(args, unknownargs):
     global admin, password, debug_level, winbindd, smb_conf, net, samba_tool
     if getuser() != 'root':
         sys.stderr.write('adtool join must be run as root\n')
@@ -791,8 +791,38 @@ def join(args):
     else:
         print 'Skipping pam configuration...'
 
-def info(args):
+def info(args, unknownargs):
     pass
+
+def kcc(cmd):
+    if debug_level != '0':
+        print ' '.join(cmd)
+    try:
+        exit(Popen(cmd).wait())
+    except OSError as e:
+        if 'No such file or directory' in str(e):
+            sys.stderr.write('%s is not in your path\n' % cmd[0])
+            exit(1)
+
+def kinit(args, unknownargs):
+    cmd = ['kinit']
+    cmd.extend(unknownargs)
+    kcc(cmd)
+
+def klist(args, unknownargs):
+    cmd = ['klist']
+    cmd.extend(unknownargs)
+    kcc(cmd)
+
+def kdestroy(args, unknownargs):
+    cmd = ['kdestroy']
+    cmd.extend(unknownargs)
+    kcc(cmd)
+
+def ktutil(args, unknownargs):
+    cmd = ['ktutil']
+    cmd.extend(unknownargs)
+    kcc(cmd)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -875,7 +905,19 @@ if __name__ == "__main__":
     info_parser.add_argument('s2', choices=['domain'])
     info_parser.set_defaults(func=info)
 
-    args = parser.parse_args()
+    kinit_parser = subparsers.add_parser('kinit')
+    kinit_parser.set_defaults(func=kinit)
+
+    klist_parser = subparsers.add_parser('klist')
+    klist_parser.set_defaults(func=klist)
+
+    kdestroy_parser = subparsers.add_parser('kdestroy')
+    kdestroy_parser.set_defaults(func=kdestroy)
+
+    ktutil_parser = subparsers.add_parser('ktutil')
+    ktutil_parser.set_defaults(func=ktutil)
+
+    args, unknownargs = parser.parse_known_args()
 
     if args.krb5_conf:
         krb5_conf = args.krb5_conf
@@ -901,5 +943,5 @@ if __name__ == "__main__":
     if args.d:
         debug_level = args.d
 
-    exit(args.func(args))
+    exit(args.func(args, unknownargs))
 
