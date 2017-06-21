@@ -24,6 +24,8 @@ winbind_conf = '@WINBINDCONF@'
 net = '@BINDIR@/net'
 samba_tool = '@BINDIR@/samba-tool'
 samba = '@SBINDIR@/samba'
+service = '@SBINDIR@/service'
+systemctl = '@BINDIR@/systemctl'
 admin = None
 password = None
 debug_level = '0'
@@ -662,6 +664,18 @@ def list_servers(domain):
     results = l.search_s(container, ldap.SCOPE_SUBTREE, '(objectCategory=computer)', ['dNSHostName'])
     return [result[1]['dNSHostName'][-1] for result in results]
 
+def start_enable_service(name, binpath):
+    global service, systemctl
+    if os.path.exists(systemctl):
+        Popen([systemctl, 'enable', name], stdout=PIPE, stderr=PIPE).wait()
+        Popen([systemctl, 'daemon-reload'], stdout=PIPE, stderr=PIPE).wait()
+        return Popen([systemctl, 'restart', name], stdout=PIPE, stderr=PIPE).wait()
+    elif os.path.exists(service):
+        return Popen([service, name, 'restart'], stdout=PIPE, stderr=PIPE).wait()
+    elif os.path.exists(binpath):
+        return Popen([binpath, '-d', debug_level, '--configfile=%s' % smb_conf, '-D'], stdout=PIPE, stderr=PIPE).wait()
+    return -1
+
 def join(args, unknownargs):
     global admin, password, debug_level, winbindd, smb_conf, net, samba_tool
     if getuser() != 'root':
@@ -710,11 +724,8 @@ def join(args, unknownargs):
             return ret
 
         # start winbindd
-        cmd = [winbindd, '-d', debug_level, '--configfile=%s' % smb_conf, '-D']
-        if debug_level != '0':
-            print ' '.join(cmd)
         sys.stdout.write('Starting winbindd... ')
-        ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
+        ret = start_enable_service('winbindd', winbindd)
         if ret != 0:
             sys.stdout.write('failed\n')
         else:
@@ -771,11 +782,8 @@ def join(args, unknownargs):
         config_krb5_conf(args.domain.upper(), server.upper())
 
         # start samba
-        cmd = [samba, '-d', debug_level, '--configfile=%s' % smb_conf, '-D']
-        if debug_level != '0':
-            print ' '.join(cmd)
         sys.stdout.write('Starting samba... ')
-        ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
+        ret = start_enable_service('samba', samba)
         if ret != 0:
             sys.stdout.write('failed\n')
         else:
