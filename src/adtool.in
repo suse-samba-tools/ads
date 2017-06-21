@@ -69,6 +69,25 @@ class SMBConfigParser(ConfigParser):
                 if isinstance(val, list):
                     options[name] = '\n'.join(val)
 
+def stop_samba():
+    global debug_level
+    lines = Popen(['ps ax | egrep "samba|smbd|nmbd|winbindd" | grep -v grep'], shell=True, stdout=PIPE).communicate()[0].strip()
+    if lines:
+        procs = [line.strip().split()[0] if line.strip() else None for line in lines.split('\n')]
+        cmd = ['kill', '-HUP']
+        cmd.extend(procs)
+        if debug_level != '0':
+            print ' '.join(cmd)
+        Popen(cmd).wait()
+
+def clean_samba_db():
+    samba_dirs = [line.split(':')[-1].strip() for line in Popen(['%s -b | egrep "LOCKDIR|STATEDIR|CACHEDIR|PRIVATE_DIR"' % smbd], shell=True, stdout=PIPE).communicate()[0].strip().split('\n')]
+    for topdir in samba_dirs:
+        for root, dirs, files in os.walk(topdir):
+            for fname in files:
+                if fname.endswith('.tdb') or fname.endswith('.ldb'):
+                    os.remove(os.path.join(root, fname))
+
 smb_conf = None
 def get_smb_conf():
     global smb_conf
@@ -612,6 +631,14 @@ def update_hostname(hostname, domain):
 
     return (hostname, shortname)
 
+def krb5_basic_conf(domain):
+    global krb5_conf
+    kof = open(krb5_conf, 'w')
+    kof.write('[libdefaults]\n')
+    kof.write('\tdns_lookup_realm = false\n')
+    kof.write('\tdns_lookup_kdc = true\n')
+    kof.write('\tdefault_realm = %s\n' % domain)
+
 def config_krb5_conf(domain, server):
     global krb5_conf
     kof = open(krb5_conf, 'w')
@@ -641,6 +668,8 @@ def join(args, unknownargs):
         sys.stderr.write('adtool join must be run as root\n')
         exit(1)
     admin, password = get_creds(admin, password)
+
+    stop_samba()
 
     server = None
     if not args.servers:
@@ -702,6 +731,22 @@ def join(args, unknownargs):
             new_smb_conf = '%s.%s' % (smb_conf, now.strftime('%b-%d-%Y_%I:%M%p'))
             print 'Stashing smb.conf to %s...' % new_smb_conf
             os.rename(smb_conf, new_smb_conf)
+        # Stash any old krb5.conf
+        if os.path.exists(krb5_conf):
+            now = datetime.datetime.now()
+            new_krb5_conf = '%s.%s' % (krb5_conf, now.strftime('%b-%d-%Y_%I:%M%p'))
+            print 'Stashing krb5.conf to %s...' % new_krb5_conf
+            os.rename(krb5_conf, new_krb5_conf)
+
+        # Cleanup old samba database files
+        clean_samba_db()
+
+        # Kinit as the admin
+        print 'kinit as %s...' % admin
+        krb5_basic_conf()
+        Popen(['echo \'%s\' | kinit %s@%s' % (password, admin, args.domain)], shell=True).wait()
+        if debug_level != '0':
+            Popen(['klist']).wait()
 
         # samba-tool domain join
         print 'Joining the domain as a Domain Controller...'
@@ -711,6 +756,30 @@ def join(args, unknownargs):
         ret = Popen(cmd).wait()
         if ret != 0:
             return ret
+
+        # configure smb.conf
+        print 'Configuring smb.conf...'
+        config_smb_conf(args.domain, server=True)
+
+        # configure pam_winbind.conf
+        print 'Configuring pam_winbind.conf...'
+        config_winbind_conf()
+
+        # configure kerberos
+        print 'Configuring kerberos...'
+        os.remove(krb5_conf)
+        config_krb5_conf(args.domain.upper(), server.upper())
+
+        # start samba
+        cmd = [samba, '-d', debug_level, '--configfile=%s' % smb_conf, '-D']
+        if debug_level != '0':
+            print ' '.join(cmd)
+        sys.stdout.write('Starting samba... ')
+        ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
+        if ret != 0:
+            sys.stdout.write('failed\n')
+        else:
+            sys.stdout.write('ok\n')
 
         # make sure the A record was added 
         for ip in ip_addrs():
@@ -762,29 +831,6 @@ def join(args, unknownargs):
         if debug_level != '0':
             print ' '.join(cmd[:-1]), ','.join(cmd[-1].split(',')[0:2])
         sys.stdout.write('Mounting the sysvol share...')
-        ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
-        if ret != 0:
-            sys.stdout.write('failed\n')
-        else:
-            sys.stdout.write('ok\n')
-
-        # configure smb.conf
-        print 'Configuring smb.conf...'
-        config_smb_conf(args.domain, server=True)
-
-        # configure pam_winbind.conf
-        print 'Configuring pam_winbind.conf...'
-        config_winbind_conf()
-
-        # configure kerberos
-        print 'Configuring kerberos...'
-        config_krb5_conf(args.domain.upper(), server.upper())
-
-        # start samba
-        cmd = [samba, '-d', debug_level, '--configfile=%s' % smb_conf, '-D']
-        if debug_level != '0':
-            print ' '.join(cmd)
-        sys.stdout.write('Starting samba... ')
         ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
         if ret != 0:
             sys.stdout.write('failed\n')
