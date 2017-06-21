@@ -924,6 +924,22 @@ def ktutil(args, unknownargs):
     cmd.extend(unknownargs)
     kcc(cmd)
 
+def flush(args, unknownargs):
+    global net
+    stop_samba()
+
+    cmd = [net, 'cache', 'flush']
+    if debug_level != '0':
+        print ' '.join(cmd)
+    exit(Popen(cmd).wait())
+
+    lp = LoadParm()
+    lp.load(get_smb_conf())
+    if lp.get('server role') == 'active directory domain controller':
+        exit(start_enable_service('samba', samba))
+    else:
+        exit(start_enable_service('winbindd', winbindd))
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--krb5_conf', help='Specify the location of the krb5.conf file')
@@ -1022,6 +1038,9 @@ if __name__ == "__main__":
 
     ktutil_parser = subparsers.add_parser('ktutil')
     ktutil_parser.set_defaults(func=ktutil)
+
+    flush_parser = subparsers.add_parser('flush')
+    flush_parser.set_defaults(func=flush)
 
     args, unknownargs = parser.parse_known_args()
 
