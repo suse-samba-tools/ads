@@ -869,7 +869,7 @@ def demote(args, unknownargs):
         print ' '.join(cmd[:-1]), '-U%s' % admin
     exit(Popen(cmd).wait())
 
-    # TODO: Stop the samba service
+    stop_samba()
 
 def unjoin(args, unknownargs):
     global admin, password, debug_level, net
@@ -889,7 +889,7 @@ def unjoin(args, unknownargs):
         print ' '.join(cmd[:-1]), '-U%s' % admin
     exit(Popen(cmd).wait())
 
-    # TODO: Stop the winbind service
+    stop_samba()
 
 def info(args, unknownargs):
     pass
