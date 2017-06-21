@@ -671,11 +671,14 @@ def start_enable_service(name, binpath):
     if os.path.exists(systemctl):
         Popen([systemctl, 'enable', name], stdout=PIPE, stderr=PIPE).wait()
         Popen([systemctl, 'daemon-reload'], stdout=PIPE, stderr=PIPE).wait()
-        return Popen([systemctl, 'restart', name], stdout=PIPE, stderr=PIPE).wait()
-    elif os.path.exists(service):
-        return Popen([service, name, 'restart'], stdout=PIPE, stderr=PIPE).wait()
-    elif os.path.exists(binpath):
-        return Popen([binpath, '-d', debug_level, '--configfile=%s' % smb_conf, '-D'], stdout=PIPE, stderr=PIPE).wait()
+        if Popen([systemctl, 'restart', name], stdout=PIPE, stderr=PIPE).wait() == 0:
+            return
+    if os.path.exists(service):
+        if Popen([service, name, 'restart'], stdout=PIPE, stderr=PIPE).wait() == 0:
+            return
+    if os.path.exists(binpath):
+        if Popen([binpath, '-d', debug_level, '--configfile=%s' % smb_conf, '-D'], stdout=PIPE, stderr=PIPE).wait() == 0:
+            return
     return -1
 
 def join(args, unknownargs):
@@ -928,6 +931,9 @@ def ktutil(args, unknownargs):
 
 def flush(args, unknownargs):
     global net
+    if getuser() != 'root':
+        sys.stderr.write('adtool flush must be run as root\n')
+        exit(1)
     stop_samba()
 
     cmd = [net, 'cache', 'flush']
@@ -943,6 +949,9 @@ def flush(args, unknownargs):
         exit(start_enable_service('winbindd', winbindd))
 
 def daemon(args, unknownargs):
+    if getuser() != 'root':
+        sys.stderr.write('adtool daemon must be run as root\n')
+        exit(1)
     binary = None
     if args.service == 'winbindd':
         binary = winbindd
