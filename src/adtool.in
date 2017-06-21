@@ -71,9 +71,11 @@ class SMBConfigParser(ConfigParser):
                 if isinstance(val, list):
                     options[name] = '\n'.join(val)
 
-def stop_samba():
+def stop_samba(service=None):
     global debug_level
-    lines = Popen(['ps ax | egrep "samba|smbd|nmbd|winbindd" | grep -v grep'], shell=True, stdout=PIPE).communicate()[0].strip()
+    if not service:
+        service = 'samba|smbd|nmbd|winbindd'
+    lines = Popen(['ps ax | egrep "%s" | grep -v grep' % service], shell=True, stdout=PIPE).communicate()[0].strip()
     if lines:
         procs = [line.strip().split()[0] if line.strip() else None for line in lines.split('\n')]
         cmd = ['kill', '-HUP']
@@ -940,6 +942,20 @@ def flush(args, unknownargs):
     else:
         exit(start_enable_service('winbindd', winbindd))
 
+def daemon(args, unknownargs):
+    binary = None
+    if args.service == 'winbindd':
+        binary = winbindd
+    elif args.service == 'samba':
+        binary = samba
+    if args.action == 'start':
+        exit(start_enable_service(args.service, binary))
+    elif args.action == 'stop':
+        stop_samba(args.service)
+    elif args.action == 'restart':
+        stop_samba(args.service)
+        exit(start_enable_service(args.service, binary))
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--krb5_conf', help='Specify the location of the krb5.conf file')
@@ -1041,6 +1057,11 @@ if __name__ == "__main__":
 
     flush_parser = subparsers.add_parser('flush')
     flush_parser.set_defaults(func=flush)
+
+    daemon_parser = subparsers.add_parser('daemon')
+    daemon_parser.add_argument('action', choices=['start', 'stop', 'restart'])
+    daemon_parser.add_argument('service', choices=['winbindd', 'samba'])
+    daemon_parser.set_defaults(func=daemon)
 
     args, unknownargs = parser.parse_known_args()
 
