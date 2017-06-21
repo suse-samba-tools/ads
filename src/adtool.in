@@ -78,7 +78,7 @@ def stop_samba(service=None):
     lines = Popen(['ps ax | egrep "%s" | grep -v grep' % service], shell=True, stdout=PIPE).communicate()[0].strip()
     if lines:
         procs = [line.strip().split()[0] if line.strip() else None for line in lines.split('\n')]
-        cmd = ['kill', '-HUP']
+        cmd = ['kill']
         cmd.extend(procs)
         if debug_level != '0':
             print ' '.join(cmd)
