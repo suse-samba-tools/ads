@@ -681,6 +681,17 @@ def start_enable_service(name, binpath):
             return
     return -1
 
+def stop_disable_service(name):
+    global service, systemctl
+    if os.path.exists(systemctl):
+        Popen([systemctl, 'stop', name], stdout=PIPE, stderr=PIPE).wait()
+        if Popen([systemctl, 'disable', name], stdout=PIPE, stderr=PIPE).wait() == 0:
+            return
+    if os.path.exists(service):
+        if Popen([service, name, 'stop'], stdout=PIPE, stderr=PIPE).wait() == 0:
+            return
+    stop_samba(name)
+
 def join(args, unknownargs):
     global admin, password, debug_level, winbindd, smb_conf, net, samba_tool
     if getuser() != 'root':
@@ -689,6 +700,7 @@ def join(args, unknownargs):
     admin, password = get_creds(admin, password)
 
     stop_samba()
+    stop_disable_service('nscd')
 
     server = None
     if not args.servers:
