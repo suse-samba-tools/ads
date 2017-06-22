@@ -745,7 +745,7 @@ def join(args, unknownargs):
 
         # Kinit as the admin
         print 'kinit as %s...' % admin
-        krb5_basic_conf()
+        krb5_basic_conf(args.domain.upper())
         Popen(['echo \'%s\' | kinit %s@%s' % (password, admin, args.domain)], shell=True).wait()
         if debug_level != '0':
             Popen(['klist']).wait()
