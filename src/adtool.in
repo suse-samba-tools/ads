@@ -18,6 +18,7 @@ winbindd = '@SBINDIR@/winbindd'
 smbd = '@SBINDIR@/smbd'
 pam_auth_conf = '@PAM_D@/common-auth'
 pam_password_conf = '@PAM_D@/common-password'
+pam_module = '@LIBDIR@/security/pam_winbind.so'
 winbind_conf = '@WINBINDCONF@'
 net = '@BINDIR@/net'
 samba_tool = '@BINDIR@/samba-tool'
@@ -516,22 +517,24 @@ def configure_nss():
         configure_nsswitch_conf()
 
 def configure_pam_auth(pam_conf):
+    global pam_module
     conf = ''
     for line in open(pam_conf):
         if 'pam_unix.so' in line and line.split()[0] == 'auth':
             conf += 'auth\tsufficient\tpam_unix.so try_first_pass\n'
-            conf += 'auth\trequired\tpam_winbind.so use_first_pass\n'
+            conf += 'auth\trequired\t%s use_first_pass\n' % pam_module
         elif not 'pam_winbind.so' in line:
             conf += line
     of = open(pam_conf, 'w')
     of.write(conf)
 
 def configure_pam_password(pam_conf):
+    global pam_module
     conf = ''
     first_line = True
     for line in open(pam_conf):
         if line.strip()[0] != '#' and first_line:
-            conf += 'password\tsufficient\tpam_winbind.so\n'
+            conf += 'password\tsufficient\t%s\n' % pam_module
             conf += 'password\trequisite\tpam_cracklib.so\n'
             first_line = False
         elif not 'pam_winbind.so' in line and not 'pam_cracklib.so' in line:
@@ -540,22 +543,22 @@ def configure_pam_password(pam_conf):
     of.write(conf)
 
 def configure_pam():
-    global pam_auth_conf, pam_password_conf
+    global pam_auth_conf, pam_password_conf, pam_module
 
-    if not os.path.exists('@LIBDIR@/security/pam_winbind.so'):
+    if not os.path.exists(pam_module):
         if os.path.exists('/lib64/security/pam_winbind.so'):
             if not os.path.exists('@LIBDIR@/security'):
                 os.mkdir('@LIBDIR@/security')
-            os.symlink('/lib64/security/pam_winbind.so', '@LIBDIR@/security/pam_winbind.so')
+            os.symlink('/lib64/security/pam_winbind.so', pam_module)
             configure_pam_auth(pam_auth_conf)
             configure_pam_password(pam_password_conf)
-            follow_symlinks(['@LIBDIR@/security/pam_winbind.so'])
+            follow_symlinks([pam_module])
         else:
             sys.stderr.write('Cannot find @LIBDIR@/security/pam_winbind.so, check that you\'ve installed the library\n')
     else:
         configure_pam_auth(pam_auth_conf)
         configure_pam_password(pam_password_conf)
-        follow_symlinks(['@LIBDIR@/security/pam_winbind.so'])
+        follow_symlinks([pam_module])
 
 def configure(args, unknownargs):
     if args.s2 == 'pam':
