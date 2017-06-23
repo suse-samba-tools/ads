@@ -851,11 +851,17 @@ def demote(args, unknownargs):
         print ' '.join(cmd[:-1]), '-U%s' % admin
     exit(Popen(cmd).wait())
 
-    stop_disable_service('samba')
+    lp = LoadParm()
+    lp.load(get_smb_conf())
+    print 'Unmounting the sysvol...'
+    Popen(['umount', lp.get('path', 'sysvol')]).wait()
 
+    print 'Disabling the samba service...'
+    stop_disable_service('samba')
     stop_samba()
 
     # Cleanup old samba database files
+    print 'Deleting samba database files...'
     clean_samba_db()
 
 def unjoin(args, unknownargs):
