@@ -851,7 +851,12 @@ def demote(args, unknownargs):
         print ' '.join(cmd[:-1]), '-U%s' % admin
     exit(Popen(cmd).wait())
 
+    stop_disable_service('samba')
+
     stop_samba()
+
+    # Cleanup old samba database files
+    clean_samba_db()
 
 def unjoin(args, unknownargs):
     global admin, password, debug_level, net
@@ -871,7 +876,12 @@ def unjoin(args, unknownargs):
         print ' '.join(cmd[:-1]), '-U%s' % admin
     exit(Popen(cmd).wait())
 
+    stop_disable_service('winbindd')
+
     stop_samba()
+
+    # Cleanup old samba database files
+    clean_samba_db()
 
 def info(args, unknownargs):
     pass
