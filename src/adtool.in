@@ -824,6 +824,7 @@ def join(args, unknownargs):
         ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
         if ret != 0:
             sys.stdout.write('failed\n')
+            sys.stderr.write('The sysvol will need to be mounted manually by running:\n# %s %s\n' % (' '.join(cmd[:-1]), ','.join(cmd[-1].split(',')[:-1])))
         else:
             sys.stdout.write('ok\n')
 
@@ -864,6 +865,10 @@ def demote(args, unknownargs):
     print 'Deleting samba database files...'
     clean_samba_db()
 
+    if os.path.exists(get_smb_conf()):
+        print 'Deleting smb.conf...'
+        os.remove(get_smb_conf())
+
 def unjoin(args, unknownargs):
     global admin, password, debug_level, net
     lp = LoadParm()
@@ -888,6 +893,10 @@ def unjoin(args, unknownargs):
 
     # Cleanup old samba database files
     clean_samba_db()
+
+    if os.path.exists(get_smb_conf()):
+        print 'Deleting smb.conf...'
+        os.remove(get_smb_conf())
 
 def info(args, unknownargs):
     pass
