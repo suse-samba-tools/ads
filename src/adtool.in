@@ -1028,12 +1028,8 @@ def daemon(args, unknownargs):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--krb5_conf', help='Specify the location of the krb5.conf file')
     parser.add_argument('--pam_auth_conf', help='Specify the location of the pam auth conf file')
     parser.add_argument('--pam_password_conf', help='Specify the location of the pam password file')
-    parser.add_argument('--pam_winbind_conf', help='Specify the location of the pam_winbind.conf file')
-    parser.add_argument('--winbindd', help='Specify the location of the winbind daemon')
-    parser.add_argument('--smbd', help='Specify the location of the smb daemon')
     parser.add_argument('-u', help='Authenticating user')
     parser.add_argument('-w', help='Authenticating password')
     parser.add_argument('-d', help='debug level')
@@ -1137,18 +1133,10 @@ if __name__ == "__main__":
 
     args, unknownargs = parser.parse_known_args()
 
-    if args.krb5_conf:
-        krb5_conf = args.krb5_conf
     if args.pam_auth_conf:
         pam_auth_conf = args.pam_auth_conf
     if args.pam_password_conf:
         pam_password_conf = args.pam_password_conf
-    if args.pam_winbind_conf:
-        winbind_conf = args.pam_winbind_conf
-    if args.winbindd:
-        winbindd = args.winbindd
-    if args.smbd:
-        smbd = args.smbd
 
     if args.u:
         admin = args.u
