@@ -875,28 +875,28 @@ def unjoin(args, unknownargs):
     lp.load(get_smb_conf())
     if lp.get('server role') == 'active directory domain controller':
         demote(args, unknownargs)
+    else:
+        if getuser() != 'root':
+            sys.stderr.write('adtool unjoin must be run as root\n')
+            exit(1)
+        admin, password = get_creds(admin, password)
 
-    if getuser() != 'root':
-        sys.stderr.write('adtool unjoin must be run as root\n')
-        exit(1)
-    admin, password = get_creds(admin, password)
+        print 'Unjoining the domain...'
+        cmd = [net, 'ads', 'leave', '-d', debug_level, '-U%s%%%s' % (admin, password)]
+        if debug_level != '0':
+            print ' '.join(cmd[:-1]), '-U%s' % admin
+        Popen(cmd).wait()
 
-    print 'Unjoining the domain...'
-    cmd = [net, 'ads', 'leave', '-d', debug_level, '-U%s%%%s' % (admin, password)]
-    if debug_level != '0':
-        print ' '.join(cmd[:-1]), '-U%s' % admin
-    Popen(cmd).wait()
+        stop_disable_service('winbindd')
 
-    stop_disable_service('winbindd')
+        stop_samba()
 
-    stop_samba()
+        # Cleanup old samba database files
+        clean_samba_db()
 
-    # Cleanup old samba database files
-    clean_samba_db()
-
-    if os.path.exists(get_smb_conf()):
-        print 'Deleting smb.conf...'
-        os.remove(get_smb_conf())
+        if os.path.exists(get_smb_conf()):
+            print 'Deleting smb.conf...'
+            os.remove(get_smb_conf())
 
 def info(args, unknownargs):
     pass
