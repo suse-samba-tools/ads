@@ -541,9 +541,8 @@ def configure_pam_password(pam_conf):
     for line in open(pam_conf):
         if line.strip()[0] != '#' and first_line:
             conf += 'password\tsufficient\t%s\n' % pam_module
-            conf += 'password\trequisite\tpam_cracklib.so\n'
             first_line = False
-        elif not pam_module.split('/')[-1] in line and not 'pam_cracklib.so' in line:
+        elif not pam_module.split('/')[-1] in line:
             conf += line
     of = open(pam_conf, 'w')
     of.write(conf)
@@ -566,7 +565,16 @@ def configure_pam():
         configure_pam_password(pam_password_conf)
         follow_symlinks([pam_module])
 
-def unconfigure_pam():
+def unconfigure_pam_password():
+    global pam_module, pam_password_conf
+    conf = ''
+    for line in open(pam_password_conf):
+        if not pam_module.split('/')[-1] in line:
+            conf += line
+    of = open(pam_password_conf, 'w')
+    of.write(conf)
+
+def unconfigure_pam_auth():
     global pam_module, pam_auth_conf
     conf = ''
     first_line = True
@@ -577,6 +585,10 @@ def unconfigure_pam():
             conf += line
     of = open(pam_auth_conf, 'w')
     of.write(conf)
+
+def unconfigure_pam():
+    unconfigure_pam_auth()
+    unconfigure_pam_password()
 
 def configure(args, unknownargs):
     if args.s2 == 'pam':
