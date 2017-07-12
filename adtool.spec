@@ -15,6 +15,7 @@ Requires:   samba-client
 Requires:   python-pam
 Requires:   python-netifaces
 Requires:   python-ldap
+Requires:   krb5-client
 BuildRequires:	autoconf
 BuildRequires:	automake
 BuildRequires:	python
