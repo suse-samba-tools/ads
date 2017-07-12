@@ -507,6 +507,21 @@ def configure_nss():
         follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
         configure_nsswitch_conf()
 
+def unconfigure_nss():
+    global nsswitch
+    try:
+        conf = ''
+        for line in open(nsswitch):
+            fore = line.strip().split(':')[0]
+            if (fore == 'passwd' or fore == 'group') and 'winbind' in line:
+                conf += line.replace('winbind', '')
+            else:
+                conf += line
+        of = open(nsswitch, 'w')
+        of.write(conf)
+    except IOError:
+        sys.stderr.write('Unconfigure nsswitch failed, filename \'%s\' not found\n' % nsswitch)
+
 def configure_pam_auth(pam_conf):
     global pam_module
     conf = ''
@@ -514,7 +529,7 @@ def configure_pam_auth(pam_conf):
         if 'pam_unix.so' in line and line.split()[0] == 'auth':
             conf += 'auth\tsufficient\tpam_unix.so try_first_pass\n'
             conf += 'auth\trequired\t%s use_first_pass\n' % pam_module
-        elif not 'pam_winbind.so' in line:
+        elif not pam_module.split('/')[-1] in line:
             conf += line
     of = open(pam_conf, 'w')
     of.write(conf)
@@ -528,7 +543,7 @@ def configure_pam_password(pam_conf):
             conf += 'password\tsufficient\t%s\n' % pam_module
             conf += 'password\trequisite\tpam_cracklib.so\n'
             first_line = False
-        elif not 'pam_winbind.so' in line and not 'pam_cracklib.so' in line:
+        elif not pam_module.split('/')[-1] in line and not 'pam_cracklib.so' in line:
             conf += line
     of = open(pam_conf, 'w')
     of.write(conf)
@@ -551,11 +566,31 @@ def configure_pam():
         configure_pam_password(pam_password_conf)
         follow_symlinks([pam_module])
 
+def unconfigure_pam():
+    global pam_module, pam_auth_conf
+    conf = ''
+    first_line = True
+    for line in open(pam_auth_conf):
+        if 'pam_unix.so' in line and line.split()[0] == 'auth':
+            conf += 'auth\trequired\tpam_unix.so try_first_pass\n'
+        elif not pam_module.split('/')[-1] in line:
+            conf += line
+    of = open(pam_auth_conf, 'w')
+    of.write(conf)
+
 def configure(args, unknownargs):
     if args.s2 == 'pam':
         configure_pam()
     elif args.s2 == 'nss':
         configure_nss()
+    else:
+        print_help()
+
+def unconfigure(args, unknownargs):
+    if args.s2 == 'pam':
+        unconfigure_pam()
+    elif args.s2 == 'nss':
+        unconfigure_nss()
     else:
         print_help()
 
@@ -861,6 +896,12 @@ def demote(args, unknownargs):
     stop_disable_service('samba')
     stop_samba()
 
+    print 'Unconfiguring pam...'
+    unconfigure_pam()
+
+    print 'Unconfiguring nss...'
+    unconfigure_nss()
+
     # Cleanup old samba database files
     print 'Deleting samba database files...'
     clean_samba_db()
@@ -890,6 +931,12 @@ def unjoin(args, unknownargs):
         stop_disable_service('winbindd')
 
         stop_samba()
+
+        print 'Unconfiguring pam...'
+        unconfigure_pam()
+
+        print 'Unconfiguring nss...'
+        unconfigure_nss()
 
         # Cleanup old samba database files
         clean_samba_db()
@@ -1047,6 +1094,10 @@ if __name__ == "__main__":
     configure_parser = subparsers.add_parser('configure')
     configure_parser.add_argument('s2', choices=['pam', 'nss'])
     configure_parser.set_defaults(func=configure)
+
+    unconfigure_parser = subparsers.add_parser('unconfigure')
+    unconfigure_parser.add_argument('s2', choices=['pam', 'nss'])
+    unconfigure_parser.set_defaults(func=unconfigure)
 
     info_parser = subparsers.add_parser('info')
     info_parser.add_argument('s2', choices=['domain'])
