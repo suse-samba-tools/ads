@@ -850,7 +850,7 @@ def demote(args, unknownargs):
     cmd = [samba_tool, 'domain', 'demote', '-d', debug_level, '-U%s%%%s' % (admin, password)]
     if debug_level != '0':
         print ' '.join(cmd[:-1]), '-U%s' % admin
-    exit(Popen(cmd).wait())
+    Popen(cmd).wait()
 
     lp = LoadParm()
     lp.load(get_smb_conf())
@@ -885,7 +885,7 @@ def unjoin(args, unknownargs):
     cmd = [net, 'ads', 'leave', '-d', debug_level, '-U%s%%%s' % (admin, password)]
     if debug_level != '0':
         print ' '.join(cmd[:-1]), '-U%s' % admin
-    exit(Popen(cmd).wait())
+    Popen(cmd).wait()
 
     stop_disable_service('winbindd')
 
