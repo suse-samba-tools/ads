@@ -908,11 +908,8 @@ def join(args, unknownargs):
     configure_nss()
 
     # configure pam
-    if not args.disable_pam:
-        print 'Configuring pam...'
-        configure_pam()
-    else:
-        print 'Skipping pam configuration...'
+    print 'Configuring pam...'
+    configure_pam()
 
 def provision(args, unknownargs):
     global admin, password, debug_level, winbindd, smb_conf, net, samba_tool, krb5_conf
@@ -969,6 +966,14 @@ def provision(args, unknownargs):
         sys.stdout.write('failed\n')
     else:
         sys.stdout.write('ok\n')
+
+    # configure nss
+    print 'Configuring nsswitch.conf...'
+    configure_nss()
+
+    # configure pam
+    print 'Configuring pam...'
+    configure_pam()
 
 def demote(args, unknownargs):
     global admin, password, debug_level, samba_tool
