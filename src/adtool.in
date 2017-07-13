@@ -80,9 +80,13 @@ def stop_samba(service=None):
     global debug_level
     if not service:
         service = 'samba|smbd|nmbd|winbindd'
-    lines = Popen(['ps ax | egrep "%s" | grep -v grep' % service], shell=True, stdout=PIPE).communicate()[0].strip()
+    lines = Popen(['ps -eo \'pid,ppid,cmd\' | egrep "%s" | grep -v grep' % service], shell=True, stdout=PIPE).communicate()[0].strip()
     if lines:
-        procs = [line.strip().split()[0] if line.strip() else None for line in lines.split('\n')]
+        procs = []
+        for line in lines.split('\n'):
+            data = line.strip().split()
+            if data and len(data) > 1 and data[1] == '1':
+                procs.append(data[0])
         cmd = ['kill']
         cmd.extend(procs)
         if debug_level != '0':
@@ -721,6 +725,24 @@ def stash_config():
         print 'Stashing krb5.conf to %s...' % new_krb5_conf
         os.rename(krb5_conf, new_krb5_conf)
 
+def start_samba():
+    global samba
+    start_enable_service('samba', samba)
+
+    # Make sure winbindd started also
+    ret = Popen(['ps ax | egrep "winbindd" | grep -v grep'], shell=True, stdout=PIPE).wait()
+    if ret != 0:
+        # If winbindd failed to start, try fixing it
+        stop_samba()
+
+        # Stop apparmor, since that could block winbindd from starting
+        stop_samba('apparmor')
+
+        # Try again
+        ret = start_enable_service('samba', samba)
+
+    return ret
+
 def join(args, unknownargs):
     global admin, password, debug_level, winbindd, smb_conf, net, samba_tool
     if getuser() != 'root':
@@ -817,7 +839,7 @@ def join(args, unknownargs):
 
         # start samba
         sys.stdout.write('Starting samba... ')
-        ret = start_enable_service('samba', samba)
+        ret = start_samba()
         if ret != 0:
             sys.stdout.write('failed\n')
         else:
@@ -942,7 +964,7 @@ def provision(args, unknownargs):
 
     # start samba
     sys.stdout.write('Starting samba... ')
-    ret = start_enable_service('samba', samba)
+    ret = start_samba()
     if ret != 0:
         sys.stdout.write('failed\n')
     else:
@@ -1067,7 +1089,7 @@ def flush(args, unknownargs):
     lp = LoadParm()
     lp.load(get_smb_conf())
     if lp.get('server role') == 'active directory domain controller':
-        exit(start_enable_service('samba', samba))
+        exit(start_samba())
     else:
         exit(start_enable_service('winbindd', winbindd))
 
