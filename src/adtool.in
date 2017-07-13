@@ -705,6 +705,22 @@ def stop_disable_service(name):
             return
     stop_samba(name)
 
+def stash_config():
+    global krb5_conf
+    # Stash the old smb.conf
+    if os.path.exists(get_smb_conf()):
+        smb_conf = get_smb_conf()
+        now = datetime.datetime.now()
+        new_smb_conf = '%s.%s' % (smb_conf, now.strftime('%b-%d-%Y_%I:%M%p'))
+        print 'Stashing smb.conf to %s...' % new_smb_conf
+        os.rename(smb_conf, new_smb_conf)
+    # Stash any old krb5.conf
+    if os.path.exists(krb5_conf):
+        now = datetime.datetime.now()
+        new_krb5_conf = '%s.%s' % (krb5_conf, now.strftime('%b-%d-%Y_%I:%M%p'))
+        print 'Stashing krb5.conf to %s...' % new_krb5_conf
+        os.rename(krb5_conf, new_krb5_conf)
+
 def join(args, unknownargs):
     global admin, password, debug_level, winbindd, smb_conf, net, samba_tool
     if getuser() != 'root':
@@ -765,19 +781,7 @@ def join(args, unknownargs):
             sys.stderr.write('samba-kdc is not installed\n')
             return 1
 
-        # Stash the old smb.conf
-        if os.path.exists(get_smb_conf()):
-            smb_conf = get_smb_conf()
-            now = datetime.datetime.now()
-            new_smb_conf = '%s.%s' % (smb_conf, now.strftime('%b-%d-%Y_%I:%M%p'))
-            print 'Stashing smb.conf to %s...' % new_smb_conf
-            os.rename(smb_conf, new_smb_conf)
-        # Stash any old krb5.conf
-        if os.path.exists(krb5_conf):
-            now = datetime.datetime.now()
-            new_krb5_conf = '%s.%s' % (krb5_conf, now.strftime('%b-%d-%Y_%I:%M%p'))
-            print 'Stashing krb5.conf to %s...' % new_krb5_conf
-            os.rename(krb5_conf, new_krb5_conf)
+        stash_config()
 
         # Cleanup old samba database files
         clean_samba_db()
@@ -887,6 +891,62 @@ def join(args, unknownargs):
         configure_pam()
     else:
         print 'Skipping pam configuration...'
+
+def provision(args, unknownargs):
+    global admin, password, debug_level, winbindd, smb_conf, net, samba_tool, krb5_conf
+    if getuser() != 'root':
+        sys.stderr.write('adtool join must be run as root\n')
+        exit(1)
+    if admin:
+        print 'Changing username to Administrator because this is a provision...'
+    admin = 'Administrator'
+    if not password:
+        password = getpass("%s's Password: " % admin)
+
+    stop_samba()
+    stop_disable_service('nscd')
+
+    # Update hostname
+    print 'Updating hostname...'
+    hostname = update_hostname(args.n, args.domain)
+
+    stash_config()
+    clean_samba_db()
+
+    print 'Provision the domain controller...'
+    cmd = [samba_tool, 'domain', 'provision', '--use-rfc2307', '--realm=%s' % args.domain.upper(), '--domain=%s' % args.domain.split('.')[0].upper(), '--server-role=dc', '--dns-backend=SAMBA_INTERNAL']
+    if args.bind_interfaces:
+        cmd.extend(['--option="interfaces=%s"' % ' '.join(args.bind_interfaces), '--option="bind interfaces only=yes"'])
+    cmd.extend(['--adminpass=%s' % password])
+    if debug_level != '0':
+        print ' '.join(cmd)
+    ret = Popen(cmd).wait()
+    if ret != 0:
+        return ret
+
+    # configure smb.conf
+    print 'Configuring smb.conf...'
+    config_smb_conf(args.domain, server=True)
+
+    # configure pam_winbind.conf
+    print 'Configuring pam_winbind.conf...'
+    config_winbind_conf()
+
+    print 'Configuring kerberos...'
+    lp = LoadParm()
+    lp.load(get_smb_conf())
+    cmd = ['ln', '-sf', os.path.join(lp.get('private directory'), 'krb5.conf'), krb5_conf]
+    if debug_level != '0':
+        print ' '.join(cmd)
+    Popen(cmd).wait()
+
+    # start samba
+    sys.stdout.write('Starting samba... ')
+    ret = start_enable_service('samba', samba)
+    if ret != 0:
+        sys.stdout.write('failed\n')
+    else:
+        sys.stdout.write('ok\n')
 
 def demote(args, unknownargs):
     global admin, password, debug_level, samba_tool
@@ -1093,6 +1153,12 @@ if __name__ == "__main__":
 
     unjoin_parser = subparsers.add_parser('unjoin')
     unjoin_parser.set_defaults(func=unjoin)
+
+    provision_parser = subparsers.add_parser('provision')
+    provision_parser.add_argument('domain')
+    provision_parser.add_argument('-n', help='Join as hostname')
+    provision_parser.add_argument('--bind-interfaces', nargs='+', help='Use this option to bind Samba to the specified interfaces')
+    provision_parser.set_defaults(func=provision)
 
     demote_parser = subparsers.add_parser('demote')
     demote_parser.set_defaults(func=demote)
