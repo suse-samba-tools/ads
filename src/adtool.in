@@ -1047,7 +1047,10 @@ def unjoin(args, unknownargs):
             os.remove(get_smb_conf())
 
 def info(args, unknownargs):
-    pass
+    if args.s2 == 'domain':
+        print get_default_realm()
+    else:
+         print_help()
 
 def kcc(cmd):
     if debug_level != '0':
