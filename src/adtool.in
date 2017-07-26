@@ -83,12 +83,17 @@ def stop_samba(service=None):
     lines = Popen(['ps -eo \'pid,ppid,cmd\' | egrep "%s" | grep -v grep' % service], shell=True, stdout=PIPE).communicate()[0].strip()
     if lines:
         procs = []
+        all_procs = []
         for line in lines.split('\n'):
             data = line.strip().split()
+            all_procs.append(int(data[1]))
             if data and len(data) > 1 and data[1] == '1':
                 procs.append(data[0])
         cmd = ['kill']
-        cmd.extend(procs)
+        if len(procs) == 0:
+            cmd.extend('%d' % min(all_procs))
+        else:
+            cmd.extend(procs)
         if debug_level != '0':
             print ' '.join(cmd)
         Popen(cmd).wait()
