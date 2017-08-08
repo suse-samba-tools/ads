@@ -666,6 +666,16 @@ def update_hostname(hostname, domain):
 
     return (hostname, shortname)
 
+def remove_hosts_config():
+    hostname = Popen(['hostname'], stdout=PIPE).communicate()[0].strip()
+    hosts = '/etc/hosts'
+    conf = ''
+    for line in open(hosts):
+        if hostname not in line:
+            conf += line
+    of = open(hosts, 'w')
+    of.write(conf)
+
 def krb5_basic_conf(domain):
     global krb5_conf
     kof = open(krb5_conf, 'w')
@@ -1042,6 +1052,8 @@ def unjoin(args, unknownargs):
         if debug_level != '0':
             print ' '.join(cmd[:-1]), '-U%s' % admin
         Popen(cmd).wait()
+
+        remove_hosts_config()
 
         stop_disable_service('winbindd')
 
