@@ -125,6 +125,14 @@ def get_default_realm():
         default_realm = get_default_realm_int()
     return default_realm
 
+def get_netbios_name(realm):
+    global admin, password
+    admin, password = get_creds(admin, password)
+    l = ldap_open(realm, admin, password)
+
+    results = l.search_s('CN=Partitions,CN=Configuration,%s' % realm_to_dn(realm), ldap.SCOPE_SUBTREE, '(netbiosname=*)', [])
+    return results[0][1]['cn'][-1] if results and len(results) > 0 and len(results[0]) > 1 and 'cn' in results[0][1] and len(results[0][1]['cn']) > 0 else ''
+
 def print_help():
     print 'invalid syntax or option not implemented'
 
@@ -438,6 +446,7 @@ def config_smb_conf(domain, autogen=False, server=False):
     if 'global' not in conf.sections():
         conf.add_section('global')
     if not server:
+        netbios = get_netbios_name(domain)
         conf.set('global', 'security', 'ads')
         conf.set('global', 'workgroup', domain.split('.')[0].upper())
         conf.set('global', 'realm', domain.upper())
@@ -454,12 +463,12 @@ def config_smb_conf(domain, autogen=False, server=False):
             conf.set('global', 'winbind nss info', 'template')
             conf.set('global', 'template shell', '/bin/bash')
             conf.set('global', 'template homedir', '/home/%D/%U')
-            conf.set('global', 'idmap config *:backend', 'autorid')
-            conf.set('global', 'idmap config *:range', '2000-99999')
+            conf.set('global', 'idmap config %s:backend' % netbios, 'autorid')
+            conf.set('global', 'idmap config %s:range' % netbios, '2000-99999')
         else:
-            conf.set('global', 'idmap config *:backend', 'ad')
-            conf.set('global', 'idmap config *:schema_mode', 'rfc2307')
-            conf.set('global', 'idmap config *:range', '2000-99999')
+            conf.set('global', 'idmap config %s:backend' % netbios, 'ad')
+            conf.set('global', 'idmap config %s:schema_mode' % netbios, 'rfc2307')
+            conf.set('global', 'idmap config %s:range' % netbios, '2000-99999')
             conf.set('global', 'winbind nss info', 'rfc2307')
     else:
         conf.set('global', 'winbind nss info', 'template')
