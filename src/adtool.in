@@ -483,9 +483,11 @@ def config_smb_conf(domain, autogen=False, server=False):
             conf.set('global', 'idmap config %s:backend' % netbios, 'autorid')
             conf.set('global', 'idmap config %s:range' % netbios, '2000-99999')
         else:
+            conf.set('global', 'idmap config *:backend', 'tdb')
+            conf.set('global', 'idmap config *:range', '2000-3999')
             conf.set('global', 'idmap config %s:backend' % netbios, 'ad')
             conf.set('global', 'idmap config %s:schema_mode' % netbios, 'rfc2307')
-            conf.set('global', 'idmap config %s:range' % netbios, '2000-99999')
+            conf.set('global', 'idmap config %s:range' % netbios, '4000-99999')
             conf.set('global', 'winbind nss info', 'rfc2307')
     else:
         conf.set('global', 'winbind nss info', 'template')
