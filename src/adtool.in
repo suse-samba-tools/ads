@@ -338,13 +338,30 @@ def convert_objsid_to_sidstr(binary):
 def realm_to_dn(realm):
     return ','.join(['dc=%s' % part for part in realm.split('.')])
 
+def kinit_for_gssapi(user, password):
+    p = Popen(['kinit', user], stdin=PIPE, stdout=PIPE)
+    p.stdin.write('%s\n' % password)
+    return p.wait()
+
 ldap_open_connections = {}
 def ldap_open(realm, user, password):
     global ldap_open_connections
     key = '%s:%s' % (realm, user)
     if key not in ldap_open_connections.keys():
-        l = ldap.open(realm)
-        l.bind_s('%s@%s' % (user, realm), password)
+        if kinit_for_gssapi(user, password) != 0:
+            print 'Authentication failed'
+            sys.exit()
+        l = ldap.initialize('ldap://%s' % realm)
+        try:
+            auth_tokens = ldap.sasl.gssapi('')
+            l.sasl_interactive_bind_s('', auth_tokens)
+        except ldap.LDAPError, e:
+            print e.message['info']
+            if type(e.message) == dict and e.message.has_key('desc'):
+                print e.message['desc']
+            else:
+                print e
+            sys.exit()
         ldap_open_connections[key] = l
     return ldap_open_connections[key]
 
