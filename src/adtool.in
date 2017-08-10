@@ -238,7 +238,7 @@ def unix_enable_user(name, passwd, container=None):
     try:
         l.modify_s(dn, modlist(ldif_old, ldif))
     except ldap.NO_SUCH_ATTRIBUTE:
-        l.add_s(dn, addlist(ldif))
+        l.modify_s(dn, modlist({}, ldif))
 
 def create(args, unknownargs):
     global admin, password, debug_level, net
@@ -425,7 +425,7 @@ def setattrs(args, unknownargs):
     try:
         l.modify_s(dn, modlist(ldif_old, ldif))
     except ldap.NO_SUCH_ATTRIBUTE:
-        l.add_s(dn, addlist(ldif))
+        l.modify_s(dn, modlist({}, ldif))
 
 def timesync(args, unknownargs):
     if args.s:
