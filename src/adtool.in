@@ -480,8 +480,10 @@ def config_smb_conf(domain, autogen=False, server=False):
             conf.set('global', 'winbind nss info', 'template')
             conf.set('global', 'template shell', '/bin/bash')
             conf.set('global', 'template homedir', '/home/%D/%U')
+            conf.set('global', 'idmap config *:backend', 'tdb')
+            conf.set('global', 'idmap config *:range', '2000-3999')
             conf.set('global', 'idmap config %s:backend' % netbios, 'autorid')
-            conf.set('global', 'idmap config %s:range' % netbios, '2000-99999')
+            conf.set('global', 'idmap config %s:range' % netbios, '4000-99999')
         else:
             conf.set('global', 'idmap config *:backend', 'tdb')
             conf.set('global', 'idmap config *:range', '2000-3999')
