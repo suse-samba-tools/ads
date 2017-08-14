@@ -339,7 +339,17 @@ def realm_to_dn(realm):
     return ','.join(['dc=%s' % part for part in realm.split('.')])
 
 def kinit_for_gssapi(user, password):
-    p = Popen(['kinit', user], stdin=PIPE, stdout=PIPE)
+    global debug_level
+    realm = get_default_realm()
+    cmd = ['kinit']
+    if debug_level != '0':
+        cmd.append('-V')
+    if not realm in user:
+        user = '%s@%s' % (user, realm.upper())
+    cmd.append(user)
+    if debug_level != '0':
+        print ' '.join(cmd)
+    p = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
     p.stdin.write('%s\n' % password)
     return p.wait()
 
@@ -787,11 +797,14 @@ def start_samba():
     return ret
 
 def join(args, unknownargs):
-    global admin, password, debug_level, winbindd, smb_conf, net, samba_tool
+    global admin, password, debug_level, winbindd, smb_conf, net, samba_tool, default_realm
     if getuser() != 'root':
         sys.stderr.write('adtool join must be run as root\n')
         exit(1)
     admin, password = get_creds(admin, password)
+
+    # Set the default realm, else kinit will fail
+    default_realm = args.domain
 
     stop_samba()
     stop_disable_service('nscd')
