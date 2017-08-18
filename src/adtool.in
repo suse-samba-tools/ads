@@ -198,16 +198,17 @@ def pam_conv(auth, query_list):
 
 def nss(args, unknownargs):
     global admin, password, debug_level
+    realm = get_default_realm()
     if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
         pw = getpwnam(args.object, debug_level)
-        if not pw:
-            pw = getpwnam('%s@%s' % (args.object, get_default_realm()), debug_level)
+        if not pw and not args.object.lower().endswith(realm.lower()):
+            pw = getpwnam('%s@%s' % (args.object, realm), debug_level)
         if pw:
             print pw
     elif args.s2 == 'getgrnam' or args.s2 == 'getgrid':
         gr = getgrnam(args.object, debug_level)
-        if not gr:
-            gr = getgrnam('%s@%s' % (args.object, get_default_realm()), debug_level)
+        if not gr and not args.object.lower().endswith(realm.lower()):
+            gr = getgrnam('%s@%s' % (args.object, realm), debug_level)
         if gr:
             print gr
     elif args.s2 == 'getpwent' or args.s2 == 'users':
