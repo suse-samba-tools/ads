@@ -536,7 +536,7 @@ def configure_nsswitch_conf():
         for line in open(nsswitch):
             fore = line.strip().split(':')[0]
             if (fore == 'passwd' or fore == 'group') and 'winbind' not in line:
-                conf += '%s winbind\n' % line.rstrip()
+                conf += '%s winbind\n' % line.replace('[NOTFOUND=return]', '').rstrip()
             else:
                 conf += line
         of = open(nsswitch, 'w')
