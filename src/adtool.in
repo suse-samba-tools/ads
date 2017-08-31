@@ -12,6 +12,7 @@ from subprocess import Popen, PIPE
 from base64 import b64decode, b64encode
 from ldap.modlist import addModlist as addlist
 from ldap.modlist import modifyModlist as modlist
+import pwd, grp
 try:
     from samba.param import LoadParm
 except ImportError:
@@ -158,32 +159,33 @@ def group_list(admin, password, debug_level):
         print ' '.join(cmd)
     return Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
 
-def getpwnam(user, debug_level):
-    cmd = ['getent', 'passwd', user]
-    if debug_level != '0':
-        print ' '.join(cmd)
-    return Popen(cmd, stdout=PIPE).communicate()[0].strip()
+def getpwnam(user):
+    try:
+        return ':'.join([str(i) for i in pwd.getpwnam(user)])
+    except KeyError:
+        return ''
 
-def getgrnam(group, debug_level):
-    cmd = ['getent', 'group', group]
-    if debug_level != '0':
-        print ' '.join(cmd)
-    return Popen(cmd, stdout=PIPE).communicate()[0].strip()
+def getgrnam(group):
+    try:
+        g = grp.getgrnam(group)
+        return ':'.join([str(i) for i in g[-1]])+':'+','.join(g.gr_mem)
+    except KeyError:
+        return ''
 
 def getpwent(admin, password, debug_level):
-    cmd = ['getent', 'passwd']
-    if debug_level != '0':
-        print ' '.join(cmd)
-    ulist = Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
-    ulist.extend([getpwnam('%s@%s' % (user, get_default_realm()), debug_level) for user in user_list(admin, password, debug_level)])
+    ulist = []
+    for d in pwd.getpwall():
+        ulist.append(':'.join([str(i) for i in d]))
+    for u in user_list(admin, password, debug_level):
+        ulist.append(getpwnam(u))
     return ulist
 
 def getgrent(admin, password, debug_level):
-    cmd = ['getent', 'group']
-    if debug_level != '0':
-        print ' '.join(cmd)
-    glist = Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
-    glist.extend([getgrnam('%s@%s' % (group, get_default_realm()), debug_level) for group in group_list(admin, password, debug_level)])
+    glist = []
+    for d in grp.getgrall():
+        glist.append(':'.join([str(i) for i in d[:-1]])+':'+','.join(d.gr_mem))
+    for g in group_list(admin, password, debug_level):
+        glist.append(getgrnam(g))
     return glist
 
 def get_creds(admin, password):
@@ -208,15 +210,15 @@ def nss(args, unknownargs):
     global admin, password, debug_level
     realm = get_default_realm()
     if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
-        pw = getpwnam(args.object, debug_level)
+        pw = getpwnam(args.object)
         if not pw and not args.object.lower().endswith(realm.lower()) and not args.object.lower().startswith(realm.lower()):
-            pw = getpwnam('%s@%s' % (args.object, realm), debug_level)
+            pw = getpwnam('%s@%s' % (args.object, realm))
         if pw:
             print pw
     elif args.s2 == 'getgrnam' or args.s2 == 'getgrid':
-        gr = getgrnam(args.object, debug_level)
+        gr = getgrnam(args.object)
         if not gr and not args.object.lower().endswith(realm.lower()) and not args.object.lower().startswith(realm.lower()):
-            gr = getgrnam('%s@%s' % (args.object, realm), debug_level)
+            gr = getgrnam('%s@%s' % (args.object, realm))
         if gr:
             print gr
     elif args.s2 == 'getpwent' or args.s2 == 'users':
