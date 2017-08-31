@@ -77,6 +77,9 @@ class SMBConfigParser(ConfigParser):
                 if isinstance(val, list):
                     options[name] = '\n'.join(val)
 
+def kdc_installed():
+    return os.path.exists(samba)
+
 def stop_samba(service=None):
     global debug_level
     if not service:
@@ -842,7 +845,7 @@ def join(args, unknownargs):
     print 'Updating hostname...'
     hostname = update_hostname(args.n, args.domain)
 
-    if not args.domain_controller:
+    if not hasattr(args, 'domain_controller') or not args.domain_controller:
         # configure smb.conf
         print 'Configuring smb.conf...'
         config_smb_conf(args.domain, autogen=args.autogen_posix_attrs)
@@ -1249,7 +1252,8 @@ if __name__ == "__main__":
 
     join_parser = subparsers.add_parser('join')
     join_parser.add_argument('--autogen-posix-attrs', action='store_true')
-    join_parser.add_argument('--domain-controller', action='store_true', help='Join the machine as a AD Domain Controller')
+    if kdc_installed():
+        join_parser.add_argument('--domain-controller', action='store_true', help='Join the machine as a AD Domain Controller')
     join_parser.add_argument('--disable-pam', action='store_true', help='Don\'t configure pam during the join')
     join_parser.add_argument('domain')
     join_parser.add_argument('-n', help='Join as hostname')
@@ -1259,14 +1263,15 @@ if __name__ == "__main__":
     unjoin_parser = subparsers.add_parser('unjoin')
     unjoin_parser.set_defaults(func=unjoin)
 
-    provision_parser = subparsers.add_parser('provision')
-    provision_parser.add_argument('domain')
-    provision_parser.add_argument('-n', help='Join as hostname')
-    provision_parser.add_argument('--bind-interfaces', nargs='+', help='Use this option to bind Samba to the specified interfaces')
-    provision_parser.set_defaults(func=provision)
+    if kdc_installed():
+        provision_parser = subparsers.add_parser('provision')
+        provision_parser.add_argument('domain')
+        provision_parser.add_argument('-n', help='Join as hostname')
+        provision_parser.add_argument('--bind-interfaces', nargs='+', help='Use this option to bind Samba to the specified interfaces')
+        provision_parser.set_defaults(func=provision)
 
-    demote_parser = subparsers.add_parser('demote')
-    demote_parser.set_defaults(func=demote)
+        demote_parser = subparsers.add_parser('demote')
+        demote_parser.set_defaults(func=demote)
 
     timesync_parser = subparsers.add_parser('timesync')
     timesync_parser.add_argument('-s', help='Server to sync with')
