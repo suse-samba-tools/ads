@@ -113,6 +113,14 @@ def get_smb_conf():
         smb_conf = Popen(['grep', 'CONFIGFILE'], stdin=Popen([smbd, '-b'], stdout=PIPE).stdout, stdout=PIPE).communicate()[0].strip().split(':')[-1].strip()
     return smb_conf
 
+samba_version = None
+def get_samba_version():
+    global samba_version
+    if not samba_version:
+        data = Popen([smbd, '-V'], stdout=PIPE).communicate()[0].strip()
+        samba_version = re.findall('\d+\.\d+\.\d', data.split()[1])[0]
+    return samba_version
+
 def get_default_realm_int():
     lp = LoadParm()
     lp.load(get_smb_conf())
@@ -488,18 +496,24 @@ def config_smb_conf(domain, autogen=False, server=False):
         conf.set('global', 'usershare allow guests', 'yes')
         conf.set('global', 'winbind offline logon', 'yes')
         if autogen:
-            conf.set('global', 'winbind nss info', 'template')
             conf.set('global', 'template shell', '/bin/bash')
             conf.set('global', 'template homedir', '/home/%D/%U')
             conf.set('global', 'idmap config *:backend', 'autorid')
             conf.set('global', 'idmap config *:range', '2000-99999')
+            if float(get_samba_version()[:3]) >= 4.6:
+                conf.set('global', 'idmap config *:unix_nss_info', 'no')
+            else:
+                conf.set('global', 'winbind nss info', 'template')
         else:
             conf.set('global', 'idmap config *:backend', 'autorid')
             conf.set('global', 'idmap config *:range', '2000-3999')
             conf.set('global', 'idmap config %s:backend' % netbios, 'ad')
             conf.set('global', 'idmap config %s:schema_mode' % netbios, 'rfc2307')
             conf.set('global', 'idmap config %s:range' % netbios, '4000-99999')
-            conf.set('global', 'winbind nss info', 'rfc2307')
+            if float(get_samba_version()[:3]) >= 4.6:
+                conf.set('global', 'idmap config %s:unix_nss_info', 'yes')
+            else:
+                conf.set('global', 'winbind nss info', 'rfc2307')
     else:
         conf.set('global', 'winbind nss info', 'template')
         conf.set('global', 'template shell', '/bin/bash')
