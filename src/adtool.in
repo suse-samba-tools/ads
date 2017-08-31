@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import sys, argparse, struct, os.path, datetime, uuid, re
+from sys import exit
 from time import sleep
 from ConfigParser import ConfigParser
 try:
@@ -145,9 +146,6 @@ def get_netbios_name(realm):
     results = l.search_s('CN=Partitions,CN=Configuration,%s' % realm_to_dn(realm), ldap.SCOPE_SUBTREE, '(netbiosname=*)', [])
     return results[0][1]['cn'][-1] if results and len(results) > 0 and len(results[0]) > 1 and 'cn' in results[0][1] and len(results[0][1]['cn']) > 0 else ''
 
-def print_help():
-    print 'invalid syntax or option not implemented'
-
 def user_list(admin, password, debug_level):
     global net
     cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
@@ -211,6 +209,9 @@ def pam_conv(auth, query_list):
 
 def nss(args, unknownargs):
     global admin, password, debug_level
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     realm = get_default_realm()
     if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
         pw = getpwnam(args.object)
@@ -236,8 +237,6 @@ def nss(args, unknownargs):
         for gr in glist:
             if gr.strip():
                 print gr
-    else:
-        print_help()
 
 def unix_enable_user(name, passwd, container=None):
     global admin, password, debug_level
@@ -256,6 +255,9 @@ def unix_enable_user(name, passwd, container=None):
 
 def create(args, unknownargs):
     global admin, password, debug_level, net
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
         if not args.e:
@@ -273,11 +275,12 @@ def create(args, unknownargs):
         if debug_level != '0':
             print ' '.join(cmd)
         return Popen(cmd).wait()
-    else:
-        print_help()
 
 def delete(args, unknownargs):
     global admin, password, debug_level, net
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
         cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
@@ -289,11 +292,12 @@ def delete(args, unknownargs):
         if debug_level != '0':
             print ' '.join(cmd)
         return Popen(cmd).wait()
-    else:
-        print_help()
 
 def user(args, unknownargs):
     global admin, password, debug_level
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if args.s2 == 'checklogin' and args.user:
         p = PAM.pam()
         p.start('passwd')
@@ -324,6 +328,9 @@ def user(args, unknownargs):
 
 def passwd(args, unknownargs):
     global admin, password, debug_level, net
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     admin, password = get_creds(admin, password)
     if args.object:
         user = args.object
@@ -374,7 +381,7 @@ def ldap_open(realm, user, password):
     if key not in ldap_open_connections.keys():
         if kinit_for_gssapi(user, password) != 0:
             print 'Authentication failed'
-            sys.exit()
+            exit()
         l = ldap.initialize('ldap://%s' % realm)
         try:
             auth_tokens = ldap.sasl.gssapi('')
@@ -385,7 +392,7 @@ def ldap_open(realm, user, password):
                 print e.message['desc']
             else:
                 print e
-            sys.exit()
+            exit()
         ldap_open_connections[key] = l
     return ldap_open_connections[key]
 
@@ -415,6 +422,9 @@ def print_ldap_object(obj, sidstr):
 
 def attrs(args, unknownargs):
     global admin, password, debug_level
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if args.object:
         admin, password = get_creds(admin, password)
         l = ldap_open(get_default_realm(), admin, password)
@@ -428,7 +438,7 @@ def attrs(args, unknownargs):
             print_ldap_object(result[1], args.b)
             print
     else:
-        print_help()
+        args.help_func()
 
 def getdn(cn, container=None):
     global admin, password
@@ -441,6 +451,9 @@ def getdn(cn, container=None):
 
 def setattrs(args, unknownargs):
     global admin, password, debug_level
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     admin, password = get_creds(admin, password)
     l = ldap_open(get_default_realm(), admin, password)
     dn = getdn(args.object)
@@ -452,12 +465,13 @@ def setattrs(args, unknownargs):
         l.modify_s(dn, modlist({}, ldif))
 
 def timesync(args, unknownargs):
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if args.s:
         Popen(['service', 'ntpd', 'stop']).wait()
         Popen(['/usr/sbin/ntpdate', args.s]).wait()
         Popen(['service', 'ntpd', 'start']).wait()
-    else:
-        print_help()
 
 def config_ntp(servers):
     # stop the ntp service
@@ -659,20 +673,22 @@ def unconfigure_pam():
     unconfigure_pam_password()
 
 def configure(args, unknownargs):
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if args.s2 == 'pam':
         configure_pam()
     elif args.s2 == 'nss':
         configure_nss()
-    else:
-        print_help()
 
 def unconfigure(args, unknownargs):
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if args.s2 == 'pam':
         unconfigure_pam()
     elif args.s2 == 'nss':
         unconfigure_nss()
-    else:
-        print_help()
 
 def ip_addrs():
     ifaces = [netifaces.ifaddresses(interface) for interface in netifaces.interfaces()]
@@ -818,6 +834,9 @@ def start_samba():
 
 def join(args, unknownargs):
     global admin, password, debug_level, winbindd, smb_conf, net, samba_tool, default_realm
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if getuser() != 'root':
         sys.stderr.write('adtool join must be run as root\n')
         exit(1)
@@ -989,6 +1008,9 @@ def join(args, unknownargs):
 
 def provision(args, unknownargs):
     global admin, password, debug_level, winbindd, smb_conf, net, samba_tool, krb5_conf
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if getuser() != 'root':
         sys.stderr.write('adtool join must be run as root\n')
         exit(1)
@@ -1053,6 +1075,9 @@ def provision(args, unknownargs):
 
 def demote(args, unknownargs):
     global admin, password, debug_level, samba_tool
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if getuser() != 'root':
         sys.stderr.write('adtool demote must be run as root\n')
         exit(1)
@@ -1089,6 +1114,9 @@ def demote(args, unknownargs):
 
 def unjoin(args, unknownargs):
     global admin, password, debug_level, net
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     lp = LoadParm()
     lp.load(get_smb_conf())
     if lp.get('server role') == 'active directory domain controller':
@@ -1125,16 +1153,17 @@ def unjoin(args, unknownargs):
             os.remove(get_smb_conf())
 
 def info(args, unknownargs):
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if args.s2 == 'domain':
         print get_default_realm()
-    else:
-         print_help()
 
 def kcc(cmd):
     if debug_level != '0':
         print ' '.join(cmd)
     try:
-        exit(Popen(cmd).wait())
+        return Popen(cmd).wait()
     except OSError as e:
         if 'No such file or directory' in str(e):
             sys.stderr.write('%s is not in your path\n' % cmd[0])
@@ -1162,6 +1191,9 @@ def ktutil(args, unknownargs):
 
 def flush(args, unknownargs):
     global net
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if getuser() != 'root':
         sys.stderr.write('adtool flush must be run as root\n')
         exit(1)
@@ -1170,16 +1202,19 @@ def flush(args, unknownargs):
     cmd = [net, 'cache', 'flush']
     if debug_level != '0':
         print ' '.join(cmd)
-    exit(Popen(cmd).wait())
+    Popen(cmd).wait()
 
     lp = LoadParm()
     lp.load(get_smb_conf())
     if lp.get('server role') == 'active directory domain controller':
-        exit(start_samba())
+        start_samba()
     else:
-        exit(start_enable_service('winbindd', winbindd))
+        start_enable_service('winbindd', winbindd)
 
 def daemon(args, unknownargs):
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if getuser() != 'root':
         sys.stderr.write('adtool daemon must be run as root\n')
         exit(1)
@@ -1189,12 +1224,12 @@ def daemon(args, unknownargs):
     elif args.service == 'samba':
         binary = samba
     if args.action == 'start':
-        exit(start_enable_service(args.service, binary))
+        return start_enable_service(args.service, binary)
     elif args.action == 'stop':
         stop_samba(args.service)
     elif args.action == 'restart':
         stop_samba(args.service)
-        exit(start_enable_service(args.service, binary))
+        return start_enable_service(args.service, binary)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1209,11 +1244,13 @@ if __name__ == "__main__":
     nss_parser.add_argument('s2', choices=['getpwnam', 'getpwuid', 'getgrnam', 'getgrid', 'getpwent', 'getgrent'])
     nss_parser.add_argument('object', nargs='?')
     nss_parser.set_defaults(func=nss)
+    nss_parser.set_defaults(help_func=nss_parser.print_help)
 
     user_parser = subparsers.add_parser('user')
     user_parser.add_argument('s2', choices=['checklogin', 'checkaccess'])
     user_parser.add_argument('user', nargs='?')
     user_parser.set_defaults(func=user)
+    user_parser.set_defaults(help_func=user_parser.print_help)
 
     create_parser = subparsers.add_parser('create')
     create_parser.add_argument('-e', help='Operate on an existing object', action='store_true')
@@ -1222,19 +1259,23 @@ if __name__ == "__main__":
     create_parser.add_argument('s2', choices=['user', 'group'])
     create_parser.add_argument('object', nargs='?')
     create_parser.set_defaults(func=create)
+    create_parser.set_defaults(help_func=create_parser.print_help)
 
     delete_parser = subparsers.add_parser('delete')
     delete_parser.add_argument('s2', choices=['user', 'group'])
     delete_parser.add_argument('object', nargs='?')
     delete_parser.set_defaults(func=delete)
+    delete_parser.set_defaults(help_func=delete_parser.print_help)
 
     list_parser = subparsers.add_parser('list')
     list_parser.add_argument('s2', choices=['users', 'groups'])
     list_parser.set_defaults(func=nss)
+    list_parser.set_defaults(help_func=list_parser.print_help)
 
     passwd_parser = subparsers.add_parser('passwd')
     passwd_parser.add_argument('object', nargs='?')
     passwd_parser.set_defaults(func=passwd)
+    passwd_parser.set_defaults(help_func=passwd_parser.print_help)
 
     attrs_parser = subparsers.add_parser('attrs')
     attrs_parser.add_argument('-b', action='store_true', help='Convert sid to human readable form')
@@ -1243,12 +1284,14 @@ if __name__ == "__main__":
     attrs_parser.add_argument('object')
     attrs_parser.add_argument('attributes', nargs='*')
     attrs_parser.set_defaults(func=attrs)
+    attrs_parser.set_defaults(help_func=attrs_parser.print_help)
 
     setattrs_parser = subparsers.add_parser('setattrs')
     setattrs_parser.add_argument('object', help='distinguishedName')
     setattrs_parser.add_argument('attribute')
     setattrs_parser.add_argument('value')
     setattrs_parser.set_defaults(func=setattrs)
+    setattrs_parser.set_defaults(help_func=setattrs_parser.print_help)
 
     join_parser = subparsers.add_parser('join')
     join_parser.add_argument('--autogen-posix-attrs', action='store_true')
@@ -1259,9 +1302,11 @@ if __name__ == "__main__":
     join_parser.add_argument('-n', help='Join as hostname')
     join_parser.add_argument('servers', nargs='*')
     join_parser.set_defaults(func=join)
+    join_parser.set_defaults(help_func=join_parser.print_help)
 
     unjoin_parser = subparsers.add_parser('unjoin')
     unjoin_parser.set_defaults(func=unjoin)
+    unjoin_parser.set_defaults(help_func=unjoin_parser.print_help)
 
     if kdc_installed():
         provision_parser = subparsers.add_parser('provision')
@@ -1269,45 +1314,57 @@ if __name__ == "__main__":
         provision_parser.add_argument('-n', help='Join as hostname')
         provision_parser.add_argument('--bind-interfaces', nargs='+', help='Use this option to bind Samba to the specified interfaces')
         provision_parser.set_defaults(func=provision)
+        provision_parser.set_defaults(help_func=provision_parser.print_help)
 
         demote_parser = subparsers.add_parser('demote')
         demote_parser.set_defaults(func=demote)
+        demote_parser.set_defaults(help_func=demote_parser.print_help)
 
     timesync_parser = subparsers.add_parser('timesync')
     timesync_parser.add_argument('-s', help='Server to sync with')
     timesync_parser.set_defaults(func=timesync)
+    timesync_parser.set_defaults(help_func=timesync_parser.print_help)
 
     configure_parser = subparsers.add_parser('configure')
     configure_parser.add_argument('s2', choices=['pam', 'nss'])
     configure_parser.set_defaults(func=configure)
+    configure_parser.set_defaults(help_func=configure_parser.print_help)
 
     unconfigure_parser = subparsers.add_parser('unconfigure')
     unconfigure_parser.add_argument('s2', choices=['pam', 'nss'])
     unconfigure_parser.set_defaults(func=unconfigure)
+    unconfigure_parser.set_defaults(help_func=unconfigure_parser.print_help)
 
     info_parser = subparsers.add_parser('info')
     info_parser.add_argument('s2', choices=['domain'])
     info_parser.set_defaults(func=info)
+    info_parser.set_defaults(help_func=info_parser.print_help)
 
     kinit_parser = subparsers.add_parser('kinit')
     kinit_parser.set_defaults(func=kinit)
+    kinit_parser.set_defaults(help_func=kinit_parser.print_help)
 
     klist_parser = subparsers.add_parser('klist')
     klist_parser.set_defaults(func=klist)
+    klist_parser.set_defaults(help_func=klist_parser.print_help)
 
     kdestroy_parser = subparsers.add_parser('kdestroy')
     kdestroy_parser.set_defaults(func=kdestroy)
+    kdestroy_parser.set_defaults(help_func=kdestroy_parser.print_help)
 
     ktutil_parser = subparsers.add_parser('ktutil')
     ktutil_parser.set_defaults(func=ktutil)
+    ktutil_parser.set_defaults(help_func=ktutil_parser.print_help)
 
     flush_parser = subparsers.add_parser('flush')
     flush_parser.set_defaults(func=flush)
+    flush_parser.set_defaults(help_func=flush_parser.print_help)
 
     daemon_parser = subparsers.add_parser('daemon')
     daemon_parser.add_argument('action', choices=['start', 'stop', 'restart'])
     daemon_parser.add_argument('service', choices=['winbindd', 'samba'])
     daemon_parser.set_defaults(func=daemon)
+    daemon_parser.set_defaults(help_func=daemon_parser.print_help)
 
     args, unknownargs = parser.parse_known_args()
 
