@@ -6,7 +6,7 @@ install-sh
 Makefile
 Makefile.in
 missing
-src/adtool
+src/adstool
 configure
 INSTALL
 tags

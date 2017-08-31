@@ -838,7 +838,7 @@ def join(args, unknownargs):
         args.help_func()
         exit(1)
     if getuser() != 'root':
-        sys.stderr.write('adtool join must be run as root\n')
+        sys.stderr.write('adstool join must be run as root\n')
         exit(1)
     admin, password = get_creds(admin, password)
 
@@ -1012,7 +1012,7 @@ def provision(args, unknownargs):
         args.help_func()
         exit(1)
     if getuser() != 'root':
-        sys.stderr.write('adtool join must be run as root\n')
+        sys.stderr.write('adstool join must be run as root\n')
         exit(1)
     if admin:
         print 'Changing username to Administrator because this is a provision...'
@@ -1079,7 +1079,7 @@ def demote(args, unknownargs):
         args.help_func()
         exit(1)
     if getuser() != 'root':
-        sys.stderr.write('adtool demote must be run as root\n')
+        sys.stderr.write('adstool demote must be run as root\n')
         exit(1)
     admin, password = get_creds(admin, password)
 
@@ -1123,7 +1123,7 @@ def unjoin(args, unknownargs):
         demote(args, unknownargs)
     else:
         if getuser() != 'root':
-            sys.stderr.write('adtool unjoin must be run as root\n')
+            sys.stderr.write('adstool unjoin must be run as root\n')
             exit(1)
         admin, password = get_creds(admin, password)
 
@@ -1195,7 +1195,7 @@ def flush(args, unknownargs):
         args.help_func()
         exit(1)
     if getuser() != 'root':
-        sys.stderr.write('adtool flush must be run as root\n')
+        sys.stderr.write('adstool flush must be run as root\n')
         exit(1)
     stop_samba()
 
@@ -1216,7 +1216,7 @@ def daemon(args, unknownargs):
         args.help_func()
         exit(1)
     if getuser() != 'root':
-        sys.stderr.write('adtool daemon must be run as root\n')
+        sys.stderr.write('adstool daemon must be run as root\n')
         exit(1)
     binary = None
     if args.service == 'winbindd':
