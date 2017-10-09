@@ -370,9 +370,24 @@ def kinit_for_gssapi(user, password):
     cmd.append(user)
     if debug_level != '0':
         print ' '.join(cmd)
+    ret = 0
     p = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
-    p.stdin.write('%s\n' % password)
-    return p.wait()
+    try:
+        p.stdin.write('%s\n' % password)
+        ret = p.wait()
+    except Exception as e:
+        ret = 1
+    if ret != 0:
+        data = p.communicate()
+        m = re.findall('Credential cache directory (.*) does not exist', data[1])
+        if len(m) > 0:
+            os.makedirs(m[-1])
+            p = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+            p.stdin.write('%s\n' % password)
+            ret = p.wait()
+        else:
+            print str(e)
+    return ret
 
 ldap_open_connections = {}
 def ldap_open(realm, user, password):
