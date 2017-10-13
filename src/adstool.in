@@ -489,10 +489,14 @@ def timesync(args, unknownargs):
         Popen(['service', 'ntpd', 'start']).wait()
 
 def config_ntp(servers):
+    ntp_conf = '/etc/ntp.conf'
+    if not os.path.exists(ntp_conf):
+        sys.stderr.write('ntp not found. Package install required.\nzypper in ntp\n')
+        exit(1)
+
     # stop the ntp service
     Popen(['service', 'ntpd', 'stop']).wait()
 
-    ntp_conf = '/etc/ntp.conf'
     config = ''
     for line in open(ntp_conf):
         if line.strip() and line.strip().split()[0] != 'server': # throw out old server list
