@@ -207,16 +207,42 @@ def pam_conv(auth, query_list):
             resp.append(('', 0))
     return resp
 
+def ldap_posix_user(user, container):
+    global admin, password
+    l = ldap_open(get_default_realm(), admin, password)
+    results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % args.object, ['sAMAccountName', 'uidNumber', 'gidNumber', 'gecos', 'homeDirectory', 'loginShell'])
+    if len(results) == 1:
+        result = results[0][1]
+        data = '%s:x' % result['sAMAccountName'][-1]
+        for key in ['uidNumber', 'gidNumber', 'gecos', 'homeDirectory', 'loginShell']:
+            arg = result[key][-1] if key in result.keys() else ''
+            data += ':%s' % arg
+        return data
+
+def ldap_posix_pwent(container):
+    global admin, password
+    ulist = []
+    for u in user_list(admin, password, debug_level):
+        ulist.append(ldap_posix_user(u, container))
+    return ulist
+
 def nss(args, unknownargs):
     global admin, password, debug_level
     if len(unknownargs) > 0:
         args.help_func()
         exit(1)
     realm = get_default_realm()
-    if args.s2 == 'getpwnam' or args.s2 == 'getpwuid':
+    if args.s2 == 'getpwnam':
+        if args.direct:
+            pw = ldap_posix_user(args.object, user_container())
+        else:
+            pw = getpwnam(args.object)
+            if not pw and not args.object.lower().endswith(realm.lower()) and not args.object.lower().startswith(realm.lower()):
+                pw = getpwnam('%s@%s' % (args.object, realm))
+        if pw:
+            print pw
+    elif args.s2 == 'getpwuid':
         pw = getpwnam(args.object)
-        if not pw and not args.object.lower().endswith(realm.lower()) and not args.object.lower().startswith(realm.lower()):
-            pw = getpwnam('%s@%s' % (args.object, realm))
         if pw:
             print pw
     elif args.s2 == 'getgrnam' or args.s2 == 'getgrid':
@@ -227,9 +253,12 @@ def nss(args, unknownargs):
             print gr
     elif args.s2 == 'getpwent' or args.s2 == 'users':
         admin, password = get_creds(admin, password)
-        ulist = getpwent(admin, password, debug_level)
+        if args.direct:
+            ulist = ldap_posix_pwent(user_container())
+        else:
+            ulist = getpwent(admin, password, debug_level)
         for pw in ulist:
-            if pw.strip():
+            if pw and pw.strip():
                 print pw
     elif args.s2 == 'getgrent' or args.s2 == 'groups':
         admin, password = get_creds(admin, password)
@@ -1261,6 +1290,7 @@ if __name__ == "__main__":
 
     nss_parser = subparsers.add_parser('nss')
     nss_parser.add_argument('s2', choices=['getpwnam', 'getpwuid', 'getgrnam', 'getgrid', 'getpwent', 'getgrent'])
+    nss_parser.add_argument('-d', '--direct', help='by pass the nss layer and return results directly from ldap', action='store_true')
     nss_parser.add_argument('object', nargs='?')
     nss_parser.set_defaults(func=nss)
     nss_parser.set_defaults(help_func=nss_parser.print_help)
