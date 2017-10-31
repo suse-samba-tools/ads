@@ -30,6 +30,7 @@ Requires:   python-netifaces
 Requires:   python-ldap
 Requires:   krb5-client
 Requires:   samba-python
+Requires:   python2-dnspython
 BuildRequires:	autoconf
 BuildRequires:	automake
 BuildRequires:	python

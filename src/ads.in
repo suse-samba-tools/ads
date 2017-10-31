@@ -19,6 +19,7 @@ try:
 except ImportError:
     print 'Import failed. Package install required.\nzypper in samba-python'
     exit(1)
+from dns import resolver, reversename
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
@@ -388,8 +389,8 @@ def convert_objsid_to_sidstr(binary):
 def realm_to_dn(realm):
     return ','.join(['dc=%s' % part for part in realm.split('.')])
 
-def kinit_for_gssapi(user, password):
-    global debug_level
+def kinit_admin(user, password):
+    global debug_level, krb5_conf
     realm = get_default_realm()
     cmd = ['kinit']
     if debug_level != '0':
@@ -425,7 +426,7 @@ def ldap_open(realm, user, password):
     global ldap_open_connections
     key = '%s:%s' % (realm, user)
     if key not in ldap_open_connections.keys():
-        if kinit_for_gssapi(user, password) != 0:
+        if kinit_admin(user, password) != 0:
             print 'Authentication failed'
             exit()
         l = ldap.initialize('ldap://%s' % realm)
@@ -815,12 +816,7 @@ def config_krb5_conf(domain, server):
     kof.write('\t%s = {\n\t\tkdc = %s\n\t\tadmin_server = %s\n\t\tdefault_domain = %s\n\t}\n' % (domain, server, server, domain))
 
 def list_servers(domain):
-    global admin, password, debug_level
-    admin, password = get_creds(admin, password)
-    l = ldap_open(domain, admin, password)
-    container = 'OU=Domain Controllers,%s' % realm_to_dn(domain)
-    results = l.search_s(container, ldap.SCOPE_SUBTREE, '(objectCategory=computer)', ['dNSHostName'])
-    return [result[1]['dNSHostName'][-1] for result in results]
+    return [str(resolver.query(reversename.from_address(r.address),"PTR")[0])[:-1] for r in resolver.query(domain, 'A')]
 
 def start_enable_service(name, binpath):
     global service, systemctl
@@ -903,6 +899,12 @@ def join(args, unknownargs):
         args.servers = list_servers(args.domain)
     server = args.servers[-1]
 
+    stash_config()
+
+    # configure kerberos
+    print 'Configuring kerberos...'
+    config_krb5_conf(args.domain.upper(), server.upper())
+
     # Configure ntp
     print 'Adding ntp servers and time syncing with AD...'
     if args.servers:
@@ -922,10 +924,6 @@ def join(args, unknownargs):
         # configure pam_winbind.conf
         print 'Configuring pam_winbind.conf...'
         config_winbind_conf()
-
-        # configure kerberos
-        print 'Configuring kerberos...'
-        config_krb5_conf(args.domain.upper(), server.upper())
 
         # net ads join the domain
         print 'Joining the domain...'
@@ -948,15 +946,13 @@ def join(args, unknownargs):
             sys.stderr.write('samba-kdc is not installed\n')
             return 1
 
-        stash_config()
-
         # Cleanup old samba database files
         clean_samba_db()
 
         # Kinit as the admin
         print 'kinit as %s...' % admin
-        krb5_basic_conf(args.domain.upper())
-        Popen(['echo \'%s\' | kinit %s@%s' % (password, admin, args.domain)], shell=True).wait()
+        if kinit_admin(admin, password) != 0:
+            print 'kinit failed'
         if debug_level != '0':
             Popen(['klist']).wait()
 
@@ -976,11 +972,6 @@ def join(args, unknownargs):
         # configure pam_winbind.conf
         print 'Configuring pam_winbind.conf...'
         config_winbind_conf()
-
-        # configure kerberos
-        print 'Configuring kerberos...'
-        os.remove(krb5_conf)
-        config_krb5_conf(args.domain.upper(), server.upper())
 
         # start samba
         sys.stdout.write('Starting samba... ')
