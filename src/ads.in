@@ -1124,7 +1124,7 @@ def provision(args, unknownargs):
     configure_pam()
 
 def demote(args, unknownargs):
-    global admin, password, debug_level, samba_tool
+    global admin, password, debug_level, samba_tool, krb5_conf
     if len(unknownargs) > 0:
         args.help_func()
         exit(1)
@@ -1161,9 +1161,13 @@ def demote(args, unknownargs):
     if os.path.exists(get_smb_conf()):
         print 'Deleting smb.conf...'
         os.remove(get_smb_conf())
+    if os.path.exists(krb5_conf):
+        print 'Deleting krb5.conf...'
+        os.remove(krb5_conf)
+
 
 def unjoin(args, unknownargs):
-    global admin, password, debug_level, net
+    global admin, password, debug_level, net, krb5_conf
     if len(unknownargs) > 0:
         args.help_func()
         exit(1)
@@ -1201,6 +1205,9 @@ def unjoin(args, unknownargs):
         if os.path.exists(get_smb_conf()):
             print 'Deleting smb.conf...'
             os.remove(get_smb_conf())
+        if os.path.exists(krb5_conf):
+            print 'Deleting krb5.conf...'
+            os.remove(krb5_conf)
 
 def info(args, unknownargs):
     if len(unknownargs) > 0:
