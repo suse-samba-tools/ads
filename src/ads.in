@@ -572,8 +572,10 @@ def config_smb_conf(domain, autogen=False, server=False):
         if autogen:
             conf.set('global', 'template shell', '/bin/bash')
             conf.set('global', 'template homedir', '/home/%D/%U')
-            conf.set('global', 'idmap config *:backend', 'autorid')
-            conf.set('global', 'idmap config *:range', '2000-99999')
+            conf.set('global', 'idmap config * : backend', 'tdb')
+            conf.set('global', 'idmap config * : range', '2000-3999')
+            conf.set('global', 'idmap config %s : backend' % netbios, 'rid')
+            conf.set('global', 'idmap config %s : range' % netbios, '4000-99999')
             if float(get_samba_version()[:3]) >= 4.6:
                 conf.set('global', 'idmap config *:unix_nss_info', 'no')
             else:
