@@ -16,7 +16,7 @@
 #
 
 Name:		ads
-Version:	1.3
+Version:	1.4
 Release:	0
 License:	GPL-3.0
 Summary:	Swiss army knife for samba
@@ -25,15 +25,15 @@ Group:		Productivity/Networking/Samba
 Source:		https://github.com/dmulder/adstool/archive/v%{version}.tar.gz
 BuildArch:	noarch
 Requires:   samba-client
-Requires:   python-pam
-Requires:   python-netifaces
-Requires:   python-ldap
+Requires:   python3-python-pam
+Requires:   python3-netifaces
+Requires:   python3-ldap
 Requires:   krb5-client
 Requires:   samba-python
-Requires:   python2-dnspython
+Requires:   python3-dnspython
 BuildRequires:	autoconf
 BuildRequires:	automake
-BuildRequires:	python
+BuildRequires:	python3
 
 %description
 Active Directory services tool for samba.
