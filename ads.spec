@@ -1,7 +1,7 @@
 #
 # spec file for package ads
 #
-# Copyright (c) 2017 SUSE LINUX GmbH, Nuernberg, Germany.
+# Copyright (c) 2018 SUSE LINUX GmbH, Nuernberg, Germany.
 #
 # All modifications and additions to the file contributed by third parties
 # remain the property of their copyright owners, unless otherwise agreed
@@ -15,25 +15,26 @@
 # Please submit bugfixes or comments via http://bugs.opensuse.org/
 #
 
-Name:		ads
-Version:	1.4
-Release:	0
-License:	GPL-3.0
-Summary:	Swiss army knife for samba
-Url:		http://www.github.com/dmulder/ads
-Group:		Productivity/Networking/Samba
-Source:		https://github.com/dmulder/adstool/archive/v%{version}.tar.gz
-BuildArch:	noarch
-Requires:   samba-client
-Requires:   python3-python-pam
-Requires:   python3-netifaces
-Requires:   python3-ldap
-Requires:   krb5-client
-Requires:   samba-python
-Requires:   python3-dnspython
-BuildRequires:	autoconf
-BuildRequires:	automake
-BuildRequires:	python3
+
+Name:           ads
+Version:        1.4
+Release:        0
+Summary:        Swiss army knife for samba
+License:        GPL-3.0
+Group:          Productivity/Networking/Samba
+Url:            http://www.github.com/dmulder/ads
+Source:         https://github.com/dmulder/adstool/archive/v%{version}.tar.gz
+BuildArch:      noarch
+Requires:       krb5-client
+Requires:       python-dnspython
+Requires:       python-ldap
+Requires:       python-netifaces
+Requires:       python-python-pam
+Requires:       samba-client
+Requires:       samba-python
+BuildRequires:  autoconf
+BuildRequires:  automake
+BuildRequires:  python
 
 %description
 Active Directory services tool for samba.
@@ -61,3 +62,4 @@ make DESTDIR=$RPM_BUILD_ROOT install
 %defattr(-,root,root)
 %{_bindir}/ads
 
+%changelog
