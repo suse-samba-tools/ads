@@ -22,6 +22,7 @@ winbindd = '@SBINDIR@/winbindd'
 smbd = '@SBINDIR@/smbd'
 pam_auth_conf = '@PAM_D@/common-auth'
 pam_password_conf = '@PAM_D@/common-password'
+pam_session_conf = '@PAM_D@/common-session'
 pam_module = '@LIBDIR@/security/pam_winbind.so'
 winbind_conf = '@WINBINDCONF@'
 net = '@BINDIR@/net'
@@ -677,8 +678,18 @@ def configure_pam_password(pam_conf):
     of = open(pam_conf, 'w')
     of.write(conf)
 
+def configure_pam_session(pam_conf):
+    conf = ''
+    for line in open(pam_conf):
+        if 'session' in line and 'pam_unix.so' in line:
+            conf += 'session\toptional\tpam_mkhomedir.so\n'
+        elif not 'pam_mkhomedir.so' in line:
+            conf += line
+    of = open(pam_conf, 'w')
+    of.write(conf)
+
 def configure_pam():
-    global pam_auth_conf, pam_password_conf, pam_module
+    global pam_auth_conf, pam_password_conf, pam_module, pam_session_conf
 
     if not os.path.exists(pam_module):
         if os.path.exists('/lib64/security/pam_winbind.so'):
@@ -687,12 +698,14 @@ def configure_pam():
             os.symlink('/lib64/security/pam_winbind.so', pam_module)
             configure_pam_auth(pam_auth_conf)
             configure_pam_password(pam_password_conf)
+            configure_pam_session(pam_session_conf)
             follow_symlinks([pam_module])
         else:
             sys.stderr.write('Cannot find @LIBDIR@/security/pam_winbind.so, check that you\'ve installed the library\n')
     else:
         configure_pam_auth(pam_auth_conf)
         configure_pam_password(pam_password_conf)
+        configure_pam_session(pam_session_conf)
         follow_symlinks([pam_module])
 
 def unconfigure_pam_password():
@@ -716,9 +729,19 @@ def unconfigure_pam_auth():
     of = open(pam_auth_conf, 'w')
     of.write(conf)
 
+def unconfigure_pam_session():
+    global pam_session_conf
+    conf = ''
+    for line in open(pam_session_conf):
+        if not 'pam_mkhomedir.so' in line:
+            conf += line
+    of = open(pam_session_conf, 'w')
+    of.write(conf)
+
 def unconfigure_pam():
     unconfigure_pam_auth()
     unconfigure_pam_password()
+    unconfigure_pam_session()
 
 def configure(args, unknownargs):
     if len(unknownargs) > 0:
