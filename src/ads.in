@@ -6,7 +6,7 @@ try:
     from ConfigParser import ConfigParser
 except ImportError:
     from configparser import ConfigParser
-import pam, netifaces, ldap
+import netifaces, ldap
 from getpass import getpass, getuser
 from subprocess import Popen, PIPE
 from base64 import b64decode, b64encode
@@ -24,6 +24,7 @@ pam_auth_conf = '@PAM_D@/common-auth'
 pam_password_conf = '@PAM_D@/common-password'
 pam_session_conf = '@PAM_D@/common-session'
 pam_module = '@LIBDIR@/security/pam_winbind.so'
+gpupdate_module = '@LIBDIR@/security/pam_gpupdate.so'
 winbind_conf = '@WINBINDCONF@'
 net = '@BINDIR@/net'
 samba_tool = '@BINDIR@/samba-tool'
@@ -659,6 +660,7 @@ def configure_pam_auth(pam_conf):
     for line in open(pam_conf):
         if 'pam_unix.so' in line and line.split()[0] == 'auth':
             conf += 'auth\tsufficient\tpam_unix.so try_first_pass\n'
+            conf += 'auth\toptional\tpam_gpupdate.so\n'
             conf += 'auth\trequired\t%s use_first_pass\n' % pam_module
         elif not pam_module.split('/')[-1] in line:
             conf += line
@@ -708,6 +710,21 @@ def configure_pam():
         configure_pam_session(pam_session_conf)
         follow_symlinks([pam_module])
 
+def configure_gp():
+    global pam_auth_conf, gpupdate_module
+    if not os.path.exists(gpupdate_module):
+        if os.path.exists('/lib64/security/pam_gpupdate.so'):
+            if not os.path.exists('@LIBDIR@/security'):
+                os.mkdir('@LIBDIR@/security')
+            os.symlink('/lib64/security/pam_gpupdate.so', pam_module)
+            configure_pam_auth(pam_auth_conf)
+            follow_symlinks([gpupdate_module])
+        else:
+            sys.stderr.write('Cannot find @LIBDIR@/security/pam_gpupdate.so, check that you\'ve installed the library\n')
+    else:
+        configure_pam_auth(pam_auth_conf)
+        follow_symlinks([gpupdate_module])
+
 def unconfigure_pam_password():
     global pam_module, pam_password_conf
     conf = ''
@@ -724,7 +741,7 @@ def unconfigure_pam_auth():
     for line in open(pam_auth_conf):
         if 'pam_unix.so' in line and line.split()[0] == 'auth':
             conf += 'auth\trequired\tpam_unix.so try_first_pass\n'
-        elif not pam_module.split('/')[-1] in line:
+        elif not pam_module.split('/')[-1] in line and not 'pam_gpupdate.so' in line:
             conf += line
     of = open(pam_auth_conf, 'w')
     of.write(conf)
@@ -751,6 +768,8 @@ def configure(args, unknownargs):
         configure_pam()
     elif args.s2 == 'nss':
         configure_nss()
+    elif args.s2 == 'gp':
+        configure_gp()
 
 def unconfigure(args, unknownargs):
     if len(unknownargs) > 0:
@@ -1066,6 +1085,7 @@ def join(args, unknownargs):
     # configure pam
     print('Configuring pam...')
     configure_pam()
+    configure_gp()
 
 def provision(args, unknownargs):
     global admin, password, debug_level, winbindd, smb_conf, net, samba_tool, krb5_conf
@@ -1133,6 +1153,7 @@ def provision(args, unknownargs):
     # configure pam
     print('Configuring pam...')
     configure_pam()
+    configure_gp()
 
 def demote(args, unknownargs):
     global admin, password, debug_level, samba_tool, krb5_conf
