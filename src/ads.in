@@ -15,6 +15,8 @@ from ldap.modlist import modifyModlist as modlist
 import pwd, grp
 from samba.param import LoadParm
 from dns import resolver, reversename
+from samba import net
+from samba.credentials import Credentials
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
@@ -288,12 +290,9 @@ def create(args, unknownargs):
     if args.s2 == 'user':
         if not args.e:
             new_user_pass = getpass("New password: ")
-            cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
-            if debug_level != '0':
-                print(' '.join(cmd))
-            ret = Popen(cmd).wait()
-            if ret:
-                return ret
+            n = net.Net(Credentials(admin, password))
+            n.create_user(args.object)
+            n.set_password(account_name=args.object, newpassword=new_user_pass)
         if args.i:
             return unix_enable_user(args.object, args.i, args.c)
     elif args.s2 == 'group':
@@ -309,10 +308,8 @@ def delete(args, unknownargs):
         exit(1)
     admin, password = get_creds(admin, password)
     if args.s2 == 'user':
-        cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
-        if debug_level != '0':
-            print(' '.join(cmd))
-        return Popen(cmd).wait()
+        n = net.Net(Credentials(admin, password))
+        n.delete_user(args.object)
     elif args.s2 == 'group':
         cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
