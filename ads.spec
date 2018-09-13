@@ -32,6 +32,7 @@ Requires:       python-netifaces
 Requires:       python-python-pam
 Requires:       samba-client
 Requires:       samba-python
+Requires:       ntp
 BuildRequires:  autoconf
 BuildRequires:  automake
 BuildRequires:  python
