@@ -1139,11 +1139,6 @@ def demote(args, unknownargs):
         print(' '.join(cmd[:-1]), '-U%s' % admin)
     Popen(cmd).wait()
 
-    lp = LoadParm()
-    lp.load(get_smb_conf())
-    print('Unmounting the sysvol...')
-    Popen(['umount', lp.get('path', 'sysvol')]).wait()
-
     print('Disabling the samba service...')
     stop_disable_service('samba')
     stop_samba()
