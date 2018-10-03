@@ -5,7 +5,9 @@ from time import sleep
 try:
     from ConfigParser import ConfigParser
 except ImportError:
-    from configparser import ConfigParser
+    def ConfigParser(defaults=None, dict_type=None, allow_no_value=None):
+        from configparser import ConfigParser
+        return ConfigParser(defaults, dict_type, allow_no_value, interpolation=None)
 import pam, netifaces, ldap
 from getpass import getpass, getuser
 from subprocess import Popen, PIPE
@@ -552,18 +554,18 @@ def config_smb_conf(domain, autogen=False, server=False):
         conf.set('global', 'security', 'ads')
         conf.set('global', 'workgroup', domain.split('.')[0].upper())
         conf.set('global', 'realm', domain.upper())
-        conf.set('global', 'log file', '/var/log/samba/%%m.log')
+        conf.set('global', 'log file', '/var/log/samba/%m.log')
         conf.set('global', 'log level', '1')
         conf.set('global', 'passdb backend', 'tdbsam')
         conf.set('global', 'map to guest', 'Bad User')
-        conf.set('global', 'logon path', '\\\\%%L\\profiles\\.msprofile')
-        conf.set('global', 'logon home', '\\\\%%L\\%%U\\.9xprofile')
+        conf.set('global', 'logon path', '\\\\%L\\profiles\\.msprofile')
+        conf.set('global', 'logon home', '\\\\%L\\%U\\.9xprofile')
         conf.set('global', 'logon drive', 'P:')
         conf.set('global', 'usershare allow guests', 'yes')
         conf.set('global', 'winbind offline logon', 'yes')
         if autogen:
             conf.set('global', 'template shell', '/bin/bash')
-            conf.set('global', 'template homedir', '/home/%%D/%%U')
+            conf.set('global', 'template homedir', '/home/%D/%U')
             conf.set('global', 'idmap config * : backend', 'tdb')
             conf.set('global', 'idmap config * : range', '2000-3999')
             conf.set('global', 'idmap config %s : backend' % netbios, 'rid')
@@ -585,7 +587,7 @@ def config_smb_conf(domain, autogen=False, server=False):
     else:
         conf.set('global', 'winbind nss info', 'template')
         conf.set('global', 'template shell', '/bin/bash')
-        conf.set('global', 'template homedir', '/home/%%D/%%U')
+        conf.set('global', 'template homedir', '/home/%D/%U')
     of = open(smb_conf, 'w')
     conf.write(of)
     of.close()
