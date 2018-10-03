@@ -588,6 +588,7 @@ def config_smb_conf(domain, autogen=False, server=False):
         conf.set('global', 'winbind nss info', 'template')
         conf.set('global', 'template shell', '/bin/bash')
         conf.set('global', 'template homedir', '/home/%D/%U')
+        conf.set('global', 'dfsrsrv:sysvol_join', 'yes')
     of = open(smb_conf, 'w')
     conf.write(of)
     of.close()
@@ -1046,20 +1047,6 @@ def join(args, unknownargs):
                     sys.stderr.write('The objectGUID Record will need to be created manually by running:\n# %s -U%s@%s\n' % (' '.join(cmd[:-1]), admin, args.domain))
                 else:
                     sys.stdout.write('ok\n')
-
-        # Piggy back the sysvol off the primary KDC. TODO: Replicate the sysvol for real
-        lp = LoadParm()
-        lp.load(get_smb_conf())
-        cmd = ['mount.cifs', '//%s/sysvol' % server, lp.get('path', 'sysvol'), '-o', 'vers=2.1,username=%s,password=\'%s\'' % (admin, password)]
-        if debug_level != '0':
-            print(' '.join(cmd[:-1]), ','.join(cmd[-1].split(',')[0:2]))
-        sys.stdout.write('Mounting the sysvol share...')
-        ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
-        if ret != 0:
-            sys.stdout.write('failed\n')
-            sys.stderr.write('The sysvol will need to be mounted manually by running:\n# %s %s\n' % (' '.join(cmd[:-1]), ','.join(cmd[-1].split(',')[:-1])))
-        else:
-            sys.stdout.write('ok\n')
 
     # configure nss
     print('Configuring nsswitch.conf...')
