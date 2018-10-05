@@ -966,7 +966,7 @@ def join(args, unknownargs):
             sys.stdout.write('ok\n')
     else:
         if not os.path.exists(samba_tool):
-            sys.stderr.write('samba-kdc is not installed\n')
+            sys.stderr.write('samba-ad-dc is not installed\n')
             return 1
 
         # Cleanup old samba database files
@@ -1133,7 +1133,7 @@ def demote(args, unknownargs):
         exit(1)
     admin, password = get_creds(admin, password)
 
-    print('Demoting the KDC...')
+    print('Demoting the ADDC...')
     cmd = [samba_tool, 'domain', 'demote', '-d', debug_level, '-U%s%%%s' % (admin, password)]
     if debug_level != '0':
         print(' '.join(cmd[:-1]), '-U%s' % admin)
