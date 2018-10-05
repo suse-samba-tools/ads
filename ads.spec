@@ -24,7 +24,6 @@ License:        GPL-3.0
 Group:          Productivity/Networking/Samba
 Url:            http://www.github.com/dmulder/ads
 Source:         https://github.com/dmulder/adstool/archive/v%{version}.tar.gz
-BuildArch:      noarch
 Requires:       krb5-client
 Requires:       python-dnspython
 Requires:       python-ldap
