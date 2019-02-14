@@ -25,16 +25,16 @@ Group:          Productivity/Networking/Samba
 Url:            http://www.github.com/dmulder/ads
 Source:         https://github.com/dmulder/adstool/archive/v%{version}.tar.gz
 Requires:       krb5-client
-Requires:       python-dnspython
-Requires:       python-ldap
-Requires:       python-netifaces
-Requires:       python-python-pam
+Requires:       python3-dnspython
+Requires:       python3-ldap
+Requires:       python3-netifaces
+Requires:       python3-python-pam
 Requires:       samba-client
-Requires:       samba-python
+Requires:       samba-python3
 Requires:       ntp
 BuildRequires:  autoconf
 BuildRequires:  automake
-BuildRequires:  python
+BuildRequires:  python3
 
 %description
 Active Directory services tool for samba.

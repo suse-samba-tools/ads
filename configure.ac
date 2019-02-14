@@ -1,7 +1,7 @@
 AC_INIT([ads], [0.1])
 
 AM_INIT_AUTOMAKE
-AM_PATH_PYTHON([2.7])
+AM_PATH_PYTHON([3.6])
 
 AC_CONFIG_FILES([Makefile src/Makefile])
 
