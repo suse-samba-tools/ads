@@ -17,13 +17,13 @@
 
 
 Name:           ads
-Version:        1.4
+Version:        1.5
 Release:        0
 Summary:        Swiss army knife for samba
 License:        GPL-3.0
 Group:          Productivity/Networking/Samba
 Url:            http://www.github.com/dmulder/ads
-Source:         https://github.com/dmulder/adstool/archive/v%{version}.tar.gz
+Source:         %{name}-%{version}.tar.bz2
 Requires:       krb5-client
 Requires:       python3-dnspython
 Requires:       python3-ldap
@@ -45,7 +45,7 @@ The ads command attempts to maintain compatibility with the proprietary vastool 
 while also adding additional features relevant to samba (such as kdc provisioning).
 
 %prep
-%setup -q -n adstool-%{version}
+%setup -q
 
 %build
 autoreconf -if
