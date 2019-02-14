@@ -36,6 +36,11 @@ BuildRequires:  autoconf
 BuildRequires:  automake
 BuildRequires:  python3
 BuildRequires:  python3-argparse-manpage
+BuildRequires:  python3-dnspython
+BuildRequires:  python3-ldap
+BuildRequires:  python3-netifaces
+BuildRequires:  python3-python-pam
+BuildRequires:  samba-python3
 
 %description
 Active Directory services tool for samba.
