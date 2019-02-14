@@ -35,6 +35,7 @@ Requires:       ntp
 BuildRequires:  autoconf
 BuildRequires:  automake
 BuildRequires:  python3
+BuildRequires:  python3-argparse-manpage
 
 %description
 Active Directory services tool for samba.

@@ -1299,8 +1299,10 @@ def daemon(args, unknownargs):
         stop_samba(args.service)
         return start_enable_service(args.service, binary)
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AD tool: for simplifying access to AD on unix systems", formatter_class=argparse.RawDescriptionHelpFormatter)
+def argparser():
+    description = "Active Directory Swiss army knife for samba.\nFor join, unjoin, provisioning, demotion, user/group and password administration,\nldap attribute modification, posix enablement, kdc timesync, pam and nss configuration,\ndaemon start/stop, cache flush, etc.\nThe ads command attempts to maintain compatibility with the proprietary vastool command,\nwhile also adding additional features relevant to samba (such as kdc provisioning)."
+    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('-v', '--version', action='version', version='@VERSION@', help='ads version')
     parser.add_argument('--pam_auth_conf', help='Specify the location of the pam auth conf file')
     parser.add_argument('--pam_password_conf', help='Specify the location of the pam password file')
     parser.add_argument('-u', help='Authenticating user')
@@ -1435,6 +1437,10 @@ if __name__ == "__main__":
     daemon_parser.set_defaults(func=daemon)
     daemon_parser.set_defaults(help_func=daemon_parser.print_help)
 
+    return parser
+
+if __name__ == "__main__":
+    parser = argparser()
     args, unknownargs = parser.parse_known_args()
 
     if args.pam_auth_conf:
