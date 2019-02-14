@@ -64,5 +64,6 @@ make
 %files
 %defattr(-,root,root)
 %{_bindir}/ads
+%{_mandir}/man1/ads.1*
 
 %changelog
