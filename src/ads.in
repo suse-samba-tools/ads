@@ -188,7 +188,7 @@ def getgrent(admin, password, debug_level):
 
 def get_creds(admin, password):
     if not admin:
-        admin = raw_input("Username: ")
+        admin = input("Username: ")
     if not password:
         password = getpass("%s's Password: " % admin)
     return (admin, password)
