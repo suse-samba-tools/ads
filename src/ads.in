@@ -3,7 +3,7 @@ import sys, argparse, struct, os.path, datetime, uuid, re
 from sys import exit
 from time import sleep
 from configparser import ConfigParser
-import pam, netifaces, ldap
+import netifaces, ldap
 from getpass import getpass, getuser
 from subprocess import Popen, PIPE
 from base64 import b64decode, b64encode
@@ -316,36 +316,50 @@ def delete(args, unknownargs):
 
 def user(args, unknownargs):
     global admin, password, debug_level
-    if len(unknownargs) > 0:
+    if len(unknownargs) > 0 or not args.user:
         args.help_func()
         exit(1)
     if args.s2 == 'checklogin' and args.user:
-        p = PAM.pam()
-        p.start('passwd')
-        p.set_item(PAM.PAM_USER, args.user)
-        p.set_item(PAM.PAM_CONV, pam_conv)
         try:
-            p.authenticate()
-        except:
-            print('Authentication failed')
-        else:
-            print('Authentication succeeded')
-        try:
-            p.acct_mgmt()
-        except:
-            print('User is not allowed')
-        else:
-            print('User is allowed')
+            import pam
+            p = pam.pam()
+            p.authenticate(args.user, getpass())
+            print('{} {}'.format(p.code, p.reason))
+        except ImportError:
+            try:
+                import PAM
+                p = PAM.pam()
+                p.start('passwd')
+                p.set_item(PAM.PAM_USER, args.user)
+                p.set_item(PAM.PAM_CONV, pam_conv)
+                try:
+                    p.authenticate()
+                except:
+                    print('Authentication failed')
+                else:
+                    print('Authentication succeeded')
+                try:
+                    p.acct_mgmt()
+                except:
+                    print('User is not allowed')
+                else:
+                    print('User is allowed')
+            except ImportError:
+                pass
     elif args.s2 == 'checkaccess' and args.user:
-        p = PAM.pam()
-        p.start('passwd')
-        p.set_item(PAM.PAM_USER, args.user)
         try:
-            p.acct_mgmt()
-        except:
-            print('User is not allowed')
-        else:
-            print('User is allowed')
+            import PAM
+            p = PAM.pam()
+            p.start('passwd')
+            p.set_item(PAM.PAM_USER, args.user)
+            try:
+                p.acct_mgmt()
+            except:
+                print('User is not allowed')
+            else:
+                print('User is allowed')
+        except ImportError:
+            pass
 
 def passwd(args, unknownargs):
     global admin, password, debug_level, net
