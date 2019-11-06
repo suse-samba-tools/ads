@@ -221,43 +221,64 @@ def ldap_posix_pwent(container):
         ulist.append(ldap_posix_user(u, container))
     return ulist
 
-def nss(args, unknownargs):
+def nss_getpwnam(args, unknownargs):
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
+    if args.direct:
+        pw = ldap_posix_user(args.object, user_container())
+    else:
+        realm = get_default_realm()
+        pw = getpwnam(args.object)
+        if not pw and not args.object.lower().endswith(realm.lower()) and not args.object.lower().startswith(realm.lower()):
+            pw = getpwnam('%s@%s' % (args.object, realm))
+    if pw:
+        print(pw)
+
+def nss_getpwuid(args, unknownargs):
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
+    pw = getpwnam(args.object)
+    if pw:
+        print(pw)
+
+def nss_getgrnam_getgrid(args, unknownargs):
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
+    gr = getgrnam(args.object)
+    realm = get_default_realm()
+    if not gr and not args.object.lower().endswith(realm.lower()) and not args.object.lower().startswith(realm.lower()):
+        gr = getgrnam('%s@%s' % (args.object, realm))
+    if gr:
+        print(gr)
+
+def nss_getpwent(args, unknownargs):
     global admin, password, debug_level
     if len(unknownargs) > 0:
         args.help_func()
         exit(1)
-    realm = get_default_realm()
-    if args.s2 == 'getpwnam':
-        if args.direct:
-            pw = ldap_posix_user(args.object, user_container())
-        else:
-            pw = getpwnam(args.object)
-            if not pw and not args.object.lower().endswith(realm.lower()) and not args.object.lower().startswith(realm.lower()):
-                pw = getpwnam('%s@%s' % (args.object, realm))
-        if pw:
+    admin, password = get_creds(admin, password)
+    if 'direct' in args and args.direct:
+        ulist = ldap_posix_pwent(user_container())
+    else:
+        ulist = getpwent(admin, password, debug_level)
+    for pw in ulist:
+        if pw and pw.strip():
             print(pw)
-    elif args.s2 == 'getpwuid':
-        pw = getpwnam(args.object)
-        if pw:
-            print(pw)
-    elif args.s2 == 'getgrnam' or args.s2 == 'getgrid':
-        gr = getgrnam(args.object)
-        if not gr and not args.object.lower().endswith(realm.lower()) and not args.object.lower().startswith(realm.lower()):
-            gr = getgrnam('%s@%s' % (args.object, realm))
-        if gr:
-            print(gr)
-    elif args.s2 == 'getpwent' or args.s2 == 'users':
-        admin, password = get_creds(admin, password)
-        if 'direct' in args and args.direct:
-            ulist = ldap_posix_pwent(user_container())
-        else:
-            ulist = getpwent(admin, password, debug_level)
-        for pw in ulist:
-            if pw and pw.strip():
-                print(pw)
-    elif args.s2 == 'getgrent' or args.s2 == 'groups':
-        admin, password = get_creds(admin, password)
-        getgrent(admin, password, debug_level)
+
+def nss_getgrent(args, unknownargs):
+    global admin, password, debug_level
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
+    admin, password = get_creds(admin, password)
+    getgrent(admin, password, debug_level)
+
+def nss(args, unknownargs):
+    args.help_func()
+    exit(1)
 
 def unix_enable_user(name, passwd, container=None):
     global admin, password, debug_level
@@ -1324,9 +1345,25 @@ def argparser():
     subparsers = parser.add_subparsers()
 
     nss_parser = subparsers.add_parser('nss', help='Run nss functions')
-    nss_parser.add_argument('s2', choices=['getpwnam', 'getpwuid', 'getgrnam', 'getgrid', 'getpwent', 'getgrent'], help='')
-    nss_parser.add_argument('-d', '--direct', help='bypass the nss layer and return results directly from ldap', action='store_true')
-    nss_parser.add_argument('object', nargs='?')
+    nss_subparsers = nss_parser.add_subparsers()
+    getpwnam_parser = nss_subparsers.add_parser('getpwnam')
+    getpwnam_parser.add_argument('object', help='username')
+    getpwnam_parser.add_argument('-d', '--direct', help='bypass the nss layer and return results directly from ldap', action='store_true')
+    getpwnam_parser.set_defaults(func=nss_getpwnam)
+    getpwuid_parser = nss_subparsers.add_parser('getpwuid')
+    getpwuid_parser.add_argument('object', help='uid')
+    getpwuid_parser.set_defaults(func=nss_getpwuid)
+    getgrnam_parser = nss_subparsers.add_parser('getgrnam')
+    getgrnam_parser.add_argument('object', help='groupname')
+    getgrnam_parser.set_defaults(func=nss_getgrnam_getgrid)
+    getgrid_parser = nss_subparsers.add_parser('getgrid')
+    getgrid_parser.add_argument('object', help='gid')
+    getgrid_parser.set_defaults(func=nss_getgrnam_getgrid)
+    getpwent_parser = nss_subparsers.add_parser('getpwent')
+    getpwent_parser.add_argument('-d', '--direct', help='bypass the nss layer and return results directly from ldap', action='store_true')
+    getpwent_parser.set_defaults(func=nss_getpwent)
+    getgrent_parser = nss_subparsers.add_parser('getgrent')
+    getgrent_parser.set_defaults(func=nss_getgrent)
     nss_parser.set_defaults(func=nss)
     nss_parser.set_defaults(help_func=nss_parser.print_help)
 
