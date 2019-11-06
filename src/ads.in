@@ -621,7 +621,10 @@ def configure_nsswitch_conf():
     except IOError:
         sys.stderr.write('Configure nsswitch failed, filename \'%s\' not found\n' % nsswitch)
 
-def configure_nss():
+def configure_nss(args, unknownargs):
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     if not os.path.exists('@LIBDIR@/libnss_winbind.so'):
         if os.path.exists('@LIBDIR@/libnss_winbind.so.2'):
             os.symlink('@LIBDIR@/libnss_winbind.so.2', '@LIBDIR@/libnss_winbind.so')
@@ -683,8 +686,11 @@ def configure_pam_session(pam_conf):
     of = open(pam_conf, 'w')
     of.write(conf)
 
-def configure_pam():
+def configure_pam(args, unknownargs):
     global pam_auth_conf, pam_password_conf, pam_module, pam_session_conf
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
 
     if not os.path.exists(pam_module):
         if os.path.exists('/lib64/security/pam_winbind.so'):
@@ -742,10 +748,8 @@ def configure(args, unknownargs):
     if len(unknownargs) > 0:
         args.help_func()
         exit(1)
-    if args.s2 == 'pam':
-        configure_pam()
-    elif args.s2 == 'nss':
-        configure_nss()
+    configure_pam(args, unknownargs)
+    configure_nss(args, unknownargs)
 
 def unconfigure(args, unknownargs):
     if len(unknownargs) > 0:
@@ -1392,7 +1396,11 @@ def argparser():
     timesync_parser.set_defaults(help_func=timesync_parser.print_help)
 
     configure_parser = subparsers.add_parser('configure', help='Configure pam and nss for winbind authentication')
-    configure_parser.add_argument('s2', choices=['pam', 'nss'])
+    configure_subparsers = configure_parser.add_subparsers()
+    configure_pam_parser = configure_subparsers.add_parser('pam')
+    configure_pam_parser.set_defaults(func=configure_pam)
+    configure_nss_parser = configure_subparsers.add_parser('nss')
+    configure_nss_parser.set_defaults(func=configure_nss)
     configure_parser.set_defaults(func=configure)
     configure_parser.set_defaults(help_func=configure_parser.print_help)
 
