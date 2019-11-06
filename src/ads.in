@@ -914,6 +914,11 @@ def start_samba():
 
     return ret
 
+def validate_dom(creds, lp, dom):
+    netcmd = Net(creds, lp)
+    cldap_ret = netcmd.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS | nbt.NBT_SERVER_WRITABLE))
+    return cldap_ret.dns_domain
+
 def join(args, unknownargs):
     global admin, password, debug_level, winbindd, smb_conf, net, samba_tool, default_realm
     if len(unknownargs) > 0:
@@ -926,23 +931,26 @@ def join(args, unknownargs):
     creds = Credentials()
     creds.set_username(admin)
     creds.set_password(password)
+    lp = LoadParm()
+    lp.load(get_smb_conf())
+    lp.set('log level', debug_level)
 
     # Set the default realm, else kinit will fail
-    default_realm = args.domain
+    default_realm = validate_dom(creds, lp, args.domain)
 
     stop_samba()
     stop_disable_service('nscd')
 
     server = None
     if not args.servers:
-        args.servers = list_servers(args.domain)
+        args.servers = list_servers(default_realm)
     server = args.servers[-1]
 
     stash_config()
 
     # configure kerberos
     print('Configuring kerberos...')
-    config_krb5_conf(args.domain.upper(), server.upper())
+    config_krb5_conf(default_realm.upper(), server.upper())
 
     # Configure ntp
     print('Adding ntp servers and time syncing with AD...')
@@ -953,12 +961,12 @@ def join(args, unknownargs):
 
     # Update hostname
     print('Updating hostname...')
-    hostname = update_hostname(args.n, args.domain)
+    hostname = update_hostname(args.n, default_realm)
 
     if not hasattr(args, 'domain_controller') or not args.domain_controller:
         # configure smb.conf
         print('Configuring smb.conf...')
-        config_smb_conf(args.domain, autogen=args.autogen_posix_attrs)
+        config_smb_conf(default_realm, autogen=args.autogen_posix_attrs)
 
         # configure pam_winbind.conf
         print('Configuring pam_winbind.conf...')
@@ -966,9 +974,6 @@ def join(args, unknownargs):
 
         # net ads join the domain
         print('Joining the domain...')
-        lp = LoadParm()
-        lp.load(get_smb_conf())
-        lp.set('log level', debug_level)
         netbios_name = lp.get("netbios name")
         netcmd = Net(creds, lp, server=server)
         (join_password, sid, domain_name) = netcmd.join_member(default_realm, netbios_name, LIBNET_JOIN_AUTOMATIC)
@@ -997,7 +1002,7 @@ def join(args, unknownargs):
 
         # samba-tool domain join
         print('Joining the domain as a Domain Controller...')
-        cmd = [samba_tool, 'domain', 'join', args.domain, 'DC', '-U%s@%s%%%s' % (admin, args.domain, password)]
+        cmd = [samba_tool, 'domain', 'join', default_realm, 'DC', '-U%s@%s%%%s' % (admin, default_realm, password)]
         if debug_level != '0':
             print(' '.join(cmd))
         ret = Popen(cmd).wait()
@@ -1006,7 +1011,7 @@ def join(args, unknownargs):
 
         # configure smb.conf
         print('Configuring smb.conf...')
-        config_smb_conf(args.domain, server=True)
+        config_smb_conf(default_realm, server=True)
 
         # configure pam_winbind.conf
         print('Configuring pam_winbind.conf...')
@@ -1028,7 +1033,7 @@ def join(args, unknownargs):
                 print(' '.join(cmd))
             ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
             if ret != 0:
-                cmd = [samba_tool, 'dns', 'add', server, args.domain, hostname[1], 'A', ip, '-U%s@%s%%%s' % (admin, args.domain, password)]
+                cmd = [samba_tool, 'dns', 'add', server, default_realm, hostname[1], 'A', ip, '-U%s@%s%%%s' % (admin, default_realm, password)]
                 if debug_level != '0':
                     print(' '.join(cmd))
                 sys.stdout.write('Creating the DC DNS Record... ')
@@ -1041,32 +1046,30 @@ def join(args, unknownargs):
         print('Verifying the objectGUID Record...')
         sleep(3) # Creating the objectGUID dies if we don't sleep a bit
         objectGUID = None
-        l = ldap_open(args.domain, admin, password)
-        results = l.search_s("CN=Sites,CN=Configuration,%s" % realm_to_dn(args.domain), ldap.SCOPE_SUBTREE, "(invocationId=*)", ["objectguid"])
+        l = ldap_open(default_realm, admin, password)
+        results = l.search_s("CN=Sites,CN=Configuration,%s" % realm_to_dn(default_realm), ldap.SCOPE_SUBTREE, "(invocationId=*)", ["objectguid"])
         for result in results:
             if 'CN=NTDS Settings,CN=%s,' % hostname[1] in result[0]:
                 objectGUID = str(uuid.UUID(bytes=result[1]['objectGUID'][-1]))
                 break
         if objectGUID:
-            cmd = ['host', '-t', 'CNAME', '%s._msdcs.%s' % (objectGUID, args.domain)]
+            cmd = ['host', '-t', 'CNAME', '%s._msdcs.%s' % (objectGUID, default_realm)]
             if debug_level != '0':
                 print(' '.join(cmd))
             ret = Popen(cmd).wait()
             if ret != 0:
-                cmd = [samba_tool, 'dns', 'add', hostname[1], '_msdcs.%s' % args.domain, objectGUID, 'CNAME', hostname[0], '-U%s@%s%%%s' % (admin, args.domain, password)]
+                cmd = [samba_tool, 'dns', 'add', hostname[1], '_msdcs.%s' % default_realm, objectGUID, 'CNAME', hostname[0], '-U%s@%s%%%s' % (admin, default_realm, password)]
                 if debug_level != '0':
                     print(' '.join(cmd))
                 sys.stdout.write('Creating the objectGUID Record... ')
                 ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
                 if ret != 0:
                     sys.stdout.write('failed\n')
-                    sys.stderr.write('The objectGUID Record will need to be created manually by running:\n# %s -U%s@%s\n' % (' '.join(cmd[:-1]), admin, args.domain))
+                    sys.stderr.write('The objectGUID Record will need to be created manually by running:\n# %s -U%s@%s\n' % (' '.join(cmd[:-1]), admin, default_realm))
                 else:
                     sys.stdout.write('ok\n')
 
         # Piggy back the sysvol off the primary KDC. TODO: Replicate the sysvol for real
-        lp = LoadParm()
-        lp.load(get_smb_conf())
         cmd = ['mount.cifs', '//%s/sysvol' % server, lp.get('path', 'sysvol'), '-o', 'vers=2.1,username=%s,password=\'%s\'' % (admin, password)]
         if debug_level != '0':
             print(' '.join(cmd[:-1]), ','.join(cmd[-1].split(',')[0:2]))
