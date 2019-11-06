@@ -336,43 +336,34 @@ def delete(args, unknownargs):
         return Popen(cmd).wait()
 
 def user(args, unknownargs):
-    global admin, password, debug_level
+    args.help_func()
+    exit(1)
+
+def user_checklogin(args, unknownargs):
     if len(unknownargs) > 0 or not args.user:
         args.help_func()
         exit(1)
-    if args.s2 == 'checklogin' and args.user:
-        try:
-            import pam
-            p = pam.pam()
-            p.authenticate(args.user, getpass())
-            print('{} {}'.format(p.code, p.reason))
-        except ImportError:
-            try:
-                import PAM
-                p = PAM.pam()
-                p.start('passwd')
-                p.set_item(PAM.PAM_USER, args.user)
-                p.set_item(PAM.PAM_CONV, pam_conv)
-                try:
-                    p.authenticate()
-                except:
-                    print('Authentication failed')
-                else:
-                    print('Authentication succeeded')
-                try:
-                    p.acct_mgmt()
-                except:
-                    print('User is not allowed')
-                else:
-                    print('User is allowed')
-            except ImportError:
-                pass
-    elif args.s2 == 'checkaccess' and args.user:
+    try:
+        import pam
+        p = pam.pam()
+        p.authenticate(args.user, getpass())
+        if p.code == 0:
+            print('Authentication succeeded')
+        else:
+            print('Authentication failed, reason: %s' % p.reason)
+    except ImportError:
         try:
             import PAM
             p = PAM.pam()
             p.start('passwd')
             p.set_item(PAM.PAM_USER, args.user)
+            p.set_item(PAM.PAM_CONV, pam_conv)
+            try:
+                p.authenticate()
+            except:
+                print('Authentication failed')
+            else:
+                print('Authentication succeeded')
             try:
                 p.acct_mgmt()
             except:
@@ -381,6 +372,24 @@ def user(args, unknownargs):
                 print('User is allowed')
         except ImportError:
             pass
+
+def user_checkaccess(args, unknownargs):
+    if len(unknownargs) > 0 or not args.user:
+        args.help_func()
+        exit(1)
+    try:
+        import PAM
+        p = PAM.pam()
+        p.start('passwd')
+        p.set_item(PAM.PAM_USER, args.user)
+        try:
+            p.acct_mgmt()
+        except:
+            print('User is not allowed')
+        else:
+            print('User is allowed')
+    except ImportError:
+        pass
 
 def passwd(args, unknownargs):
     global admin, password, debug_level, net
@@ -1368,8 +1377,13 @@ def argparser():
     nss_parser.set_defaults(help_func=nss_parser.print_help)
 
     user_parser = subparsers.add_parser('user', help='Manage Active Directory users')
-    user_parser.add_argument('s2', choices=['checklogin', 'checkaccess'])
-    user_parser.add_argument('user', nargs='?')
+    user_subparsers = user_parser.add_subparsers()
+    checklogin_parser = user_subparsers.add_parser('checklogin')
+    checklogin_parser.add_argument('user')
+    checklogin_parser.set_defaults(func=user_checklogin)
+    checkaccess_parser = user_subparsers.add_parser('checkaccess')
+    checkaccess_parser.add_argument('user')
+    checkaccess_parser.set_defaults(func=user_checkaccess)
     user_parser.set_defaults(func=user)
     user_parser.set_defaults(help_func=user_parser.print_help)
 
