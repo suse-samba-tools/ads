@@ -12,6 +12,9 @@ from ldap.modlist import modifyModlist as modlist
 import pwd, grp
 from samba.param import LoadParm
 from dns import resolver, reversename
+from samba.net import Net
+from samba.credentials import Credentials
+from samba.dcerpc import nbt
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
@@ -1295,6 +1298,30 @@ def info_domain(args, unknownargs):
         exit(1)
     print(get_default_realm())
 
+def info_cldap(args, unknownargs):
+    global admin, password
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
+    admin, password = get_creds(admin, password)
+    creds = Credentials()
+    creds.set_username(admin)
+    creds.set_password(password)
+    lp = LoadParm()
+    lp.load(get_smb_conf())
+
+    netcmd = Net(creds, lp)
+    cldap_ret = netcmd.finddc(address=args.server, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
+    print('DomainGuid:\t\t%s' % cldap_ret.domain_uuid)
+    print('DnsForestName:\t\t%s' % cldap_ret.forest)
+    print('DnsDomainName:\t\t%s' % cldap_ret.dns_domain)
+    print('DnsHostName:\t\t%s' % cldap_ret.pdc_dns_name)
+    print('NetbiosDomainName:\t%s' % cldap_ret.domain_name)
+    print('NetbiosComputerName:\t%s' % cldap_ret.pdc_name)
+    print('UserName:\t\t%s' % cldap_ret.user_name)
+    print('DcSiteName:\t\t%s' % cldap_ret.server_site)
+    print('ClientSiteName:\t\t%s' % cldap_ret.client_site)
+
 def kcc(cmd):
     if debug_level != '0':
         print(' '.join(cmd))
@@ -1521,6 +1548,9 @@ def argparser():
     info_subparsers = info_parser.add_subparsers()
     info_domain_parser = info_subparsers.add_parser('domain')
     info_domain_parser.set_defaults(func=info_domain)
+    info_cldap_parser = info_subparsers.add_parser('cldap')
+    info_cldap_parser.add_argument('server')
+    info_cldap_parser.set_defaults(func=info_cldap)
     info_parser.set_defaults(func=info)
     info_parser.set_defaults(help_func=info_parser.print_help)
 
