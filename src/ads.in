@@ -698,8 +698,11 @@ def configure_nss(args, unknownargs):
         follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
         configure_nsswitch_conf()
 
-def unconfigure_nss():
+def unconfigure_nss(args, unknownargs):
     global nsswitch
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     try:
         conf = ''
         for line in open(nsswitch):
@@ -801,7 +804,10 @@ def unconfigure_pam_session():
     of = open(pam_session_conf, 'w')
     of.write(conf)
 
-def unconfigure_pam():
+def unconfigure_pam(args, unknownargs):
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
     unconfigure_pam_auth()
     unconfigure_pam_password()
     unconfigure_pam_session()
@@ -817,10 +823,8 @@ def unconfigure(args, unknownargs):
     if len(unknownargs) > 0:
         args.help_func()
         exit(1)
-    if args.s2 == 'pam':
-        unconfigure_pam()
-    elif args.s2 == 'nss':
-        unconfigure_nss()
+    unconfigure_pam(args, unknownargs)
+    unconfigure_nss(args, unknownargs)
 
 def ip_addrs():
     ifaces = [netifaces.ifaddresses(interface) for interface in netifaces.interfaces()]
@@ -1502,7 +1506,11 @@ def argparser():
     configure_parser.set_defaults(help_func=configure_parser.print_help)
 
     unconfigure_parser = subparsers.add_parser('unconfigure', help='Unconfigure pam and nss for winbind authentication')
-    unconfigure_parser.add_argument('s2', choices=['pam', 'nss'])
+    unconfigure_subparsers = unconfigure_parser.add_subparsers()
+    unconfigure_pam_parser = unconfigure_subparsers.add_parser('pam')
+    unconfigure_pam_parser.set_defaults(func=unconfigure_pam)
+    unconfigure_nss_parser = unconfigure_subparsers.add_parser('nss')
+    unconfigure_nss_parser.set_defaults(func=unconfigure_nss)
     unconfigure_parser.set_defaults(func=unconfigure)
     unconfigure_parser.set_defaults(help_func=unconfigure_parser.print_help)
 
