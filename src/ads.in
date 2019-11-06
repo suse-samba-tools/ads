@@ -166,9 +166,9 @@ def getpwnam(user):
 def getgrnam(group):
     try:
         g = grp.getgrnam(group)
-        return ':'.join([str(i) for i in g[-1]])+':'+','.join(g.gr_mem)
+        return '%s:x:%d:%s' % (group, g.gr_gid, ','.join(g.gr_mem))
     except KeyError:
-        return ''
+        return group
 
 def getpwent(admin, password, debug_level):
     ulist = []
@@ -179,12 +179,10 @@ def getpwent(admin, password, debug_level):
     return ulist
 
 def getgrent(admin, password, debug_level):
-    glist = []
     for d in grp.getgrall():
-        glist.append(':'.join([str(i) for i in d[:-1]])+':'+','.join(d.gr_mem))
+        print(':'.join([str(i) for i in d[:-1]])+':'+','.join(d.gr_mem))
     for g in group_list(admin, password, debug_level):
-        glist.append(getgrnam(g))
-    return glist
+        print(getgrnam(g))
 
 def get_creds(admin, password):
     if not admin:
@@ -259,10 +257,7 @@ def nss(args, unknownargs):
                 print(pw)
     elif args.s2 == 'getgrent' or args.s2 == 'groups':
         admin, password = get_creds(admin, password)
-        glist = getgrent(admin, password, debug_level)
-        for gr in glist:
-            if gr.strip():
-                print(gr)
+        getgrent(admin, password, debug_level)
 
 def unix_enable_user(name, passwd, container=None):
     global admin, password, debug_level
