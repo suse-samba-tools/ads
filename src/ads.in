@@ -296,27 +296,36 @@ def unix_enable_user(name, passwd, container=None):
         l.modify_s(dn, modlist({}, ldif))
 
 def create(args, unknownargs):
+    args.help_func()
+    exit(1)
+
+def create_user(args, unknownargs):
     global admin, password, debug_level, net
     if len(unknownargs) > 0:
         args.help_func()
         exit(1)
     admin, password = get_creds(admin, password)
-    if args.s2 == 'user':
-        if not args.e:
-            new_user_pass = getpass("New password: ")
-            cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
-            if debug_level != '0':
-                print(' '.join(cmd))
-            ret = Popen(cmd).wait()
-            if ret:
-                return ret
-        if args.i:
-            return unix_enable_user(args.object, args.i, args.c)
-    elif args.s2 == 'group':
-        cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+    if not args.e:
+        new_user_pass = getpass("New password: ")
+        cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
             print(' '.join(cmd))
-        return Popen(cmd).wait()
+        ret = Popen(cmd).wait()
+        if ret:
+            return ret
+    if args.i:
+        return unix_enable_user(args.object, args.i, args.c)
+
+def create_group(args, unknownargs):
+    global admin, password, debug_level, net
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
+    admin, password = get_creds(admin, password)
+    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+    if debug_level != '0':
+        print(' '.join(cmd))
+    return Popen(cmd).wait()
 
 def delete(args, unknownargs):
     global admin, password, debug_level, net
@@ -1390,9 +1399,14 @@ def argparser():
     create_parser = subparsers.add_parser('create', help='Create Active Directory users/groups')
     create_parser.add_argument('-e', help='Operate on an existing object', action='store_true')
     create_parser.add_argument('-i', help='Passwd line for unix enable')
-    create_parser.add_argument('-c', help='Container to search in')
-    create_parser.add_argument('s2', choices=['user', 'group'])
-    create_parser.add_argument('object', nargs='?')
+    create_parser.add_argument('-c', help='Container to create object in')
+    create_subparsers = create_parser.add_subparsers()
+    create_user_parser = create_subparsers.add_parser('user')
+    create_user_parser.add_argument('object', help='user')
+    create_user_parser.set_defaults(func=create_user)
+    create_group_parser = create_subparsers.add_parser('group')
+    create_group_parser.add_argument('object', help='group')
+    create_group_parser.set_defaults(func=create_group)
     create_parser.set_defaults(func=create)
     create_parser.set_defaults(help_func=create_parser.print_help)
 
