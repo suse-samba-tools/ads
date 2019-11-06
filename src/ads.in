@@ -1286,11 +1286,14 @@ def unjoin(args, unknownargs):
             os.remove(krb5_conf)
 
 def info(args, unknownargs):
+    args.help_func()
+    exit(1)
+
+def info_domain(args, unknownargs):
     if len(unknownargs) > 0:
         args.help_func()
         exit(1)
-    if args.s2 == 'domain':
-        print(get_default_realm())
+    print(get_default_realm())
 
 def kcc(cmd):
     if debug_level != '0':
@@ -1515,7 +1518,9 @@ def argparser():
     unconfigure_parser.set_defaults(help_func=unconfigure_parser.print_help)
 
     info_parser = subparsers.add_parser('info', help='Get information about the domain')
-    info_parser.add_argument('s2', choices=['domain'])
+    info_subparsers = info_parser.add_subparsers()
+    info_domain_parser = info_subparsers.add_parser('domain')
+    info_domain_parser.set_defaults(func=info_domain)
     info_parser.set_defaults(func=info)
     info_parser.set_defaults(help_func=info_parser.print_help)
 
