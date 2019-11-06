@@ -14,6 +14,7 @@ from samba.param import LoadParm
 from dns import resolver, reversename
 from samba.net import Net, LIBNET_JOIN_AUTOMATIC
 from samba.credentials import Credentials
+from samba.join import join_DC
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
@@ -963,6 +964,8 @@ def join(args, unknownargs):
     print('Updating hostname...')
     hostname = update_hostname(args.n, default_realm)
 
+    netbios_name = lp.get("netbios name")
+
     if not hasattr(args, 'domain_controller') or not args.domain_controller:
         # configure smb.conf
         print('Configuring smb.conf...')
@@ -974,7 +977,6 @@ def join(args, unknownargs):
 
         # net ads join the domain
         print('Joining the domain...')
-        netbios_name = lp.get("netbios name")
         netcmd = Net(creds, lp, server=server)
         (join_password, sid, domain_name) = netcmd.join_member(default_realm, netbios_name, LIBNET_JOIN_AUTOMATIC)
 
@@ -1002,12 +1004,8 @@ def join(args, unknownargs):
 
         # samba-tool domain join
         print('Joining the domain as a Domain Controller...')
-        cmd = [samba_tool, 'domain', 'join', default_realm, 'DC', '-U%s@%s%%%s' % (admin, default_realm, password)]
-        if debug_level != '0':
-            print(' '.join(cmd))
-        ret = Popen(cmd).wait()
-        if ret != 0:
-            return ret
+        join_DC(server=server, creds=creds, lp=lp, domain=default_realm,
+                netbios_name=netbios_name, dns_backend='SAMBA_INTERNAL')
 
         # configure smb.conf
         print('Configuring smb.conf...')
