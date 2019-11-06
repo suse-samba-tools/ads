@@ -328,21 +328,30 @@ def create_group(args, unknownargs):
     return Popen(cmd).wait()
 
 def delete(args, unknownargs):
+    args.help_func()
+    exit(1)
+
+def delete_user(args, unknownargs):
     global admin, password, debug_level, net
     if len(unknownargs) > 0:
         args.help_func()
         exit(1)
     admin, password = get_creds(admin, password)
-    if args.s2 == 'user':
-        cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
-        if debug_level != '0':
-            print(' '.join(cmd))
-        return Popen(cmd).wait()
-    elif args.s2 == 'group':
-        cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
-        if debug_level != '0':
-            print(' '.join(cmd))
-        return Popen(cmd).wait()
+    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+    if debug_level != '0':
+        print(' '.join(cmd))
+    return Popen(cmd).wait()
+
+def delete_group(args, unknownargs):
+    global admin, password, debug_level, net
+    if len(unknownargs) > 0:
+        args.help_func()
+        exit(1)
+    admin, password = get_creds(admin, password)
+    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+    if debug_level != '0':
+        print(' '.join(cmd))
+    return Popen(cmd).wait()
 
 def user(args, unknownargs):
     args.help_func()
@@ -1411,8 +1420,13 @@ def argparser():
     create_parser.set_defaults(help_func=create_parser.print_help)
 
     delete_parser = subparsers.add_parser('delete', help='Delete Active Directory users/groups')
-    delete_parser.add_argument('s2', choices=['user', 'group'])
-    delete_parser.add_argument('object', nargs='?')
+    delete_subparsers = delete_parser.add_subparsers()
+    delete_user_parser = delete_subparsers.add_parser('user')
+    delete_user_parser.add_argument('object', help='user')
+    delete_user_parser.set_defaults(func=delete_user)
+    delete_group_parser = delete_subparsers.add_parser('group')
+    delete_group_parser.add_argument('object', help='group')
+    delete_group_parser.set_defaults(func=delete_group)
     delete_parser.set_defaults(func=delete)
     delete_parser.set_defaults(help_func=delete_parser.print_help)
 
