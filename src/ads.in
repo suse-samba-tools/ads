@@ -1431,7 +1431,11 @@ def argparser():
     delete_parser.set_defaults(help_func=delete_parser.print_help)
 
     list_parser = subparsers.add_parser('list', help='List Active Directory users/groups')
-    list_parser.add_argument('s2', choices=['users', 'groups'])
+    list_subparsers = list_parser.add_subparsers()
+    list_users_parser = list_subparsers.add_parser('users')
+    list_users_parser.set_defaults(func=nss_getpwent)
+    list_groups_parser = list_subparsers.add_parser('groups')
+    list_groups_parser.set_defaults(func=nss_getgrent)
     list_parser.set_defaults(func=nss)
     list_parser.set_defaults(help_func=list_parser.print_help)
 
