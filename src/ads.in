@@ -148,14 +148,14 @@ def user_list(admin, password, debug_level):
     cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
     if debug_level != '0':
         print(' '.join(cmd))
-    return Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
+    return Popen(cmd, stdout=PIPE).communicate()[0].decode().strip().split('\n')
 
 def group_list(admin, password, debug_level):
     global net
     cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
     if debug_level != '0':
         print(' '.join(cmd))
-    return Popen(cmd, stdout=PIPE).communicate()[0].strip().split('\n')
+    return Popen(cmd, stdout=PIPE).communicate()[0].decode().strip().split('\n')
 
 def getpwnam(user):
     try:
@@ -250,7 +250,7 @@ def nss(args, unknownargs):
             print(gr)
     elif args.s2 == 'getpwent' or args.s2 == 'users':
         admin, password = get_creds(admin, password)
-        if args.direct:
+        if 'direct' in args and args.direct:
             ulist = ldap_posix_pwent(user_container())
         else:
             ulist = getpwent(admin, password, debug_level)
