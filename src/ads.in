@@ -1554,21 +1554,17 @@ def argparser():
     info_parser.set_defaults(func=info)
     info_parser.set_defaults(help_func=info_parser.print_help)
 
-    kinit_parser = subparsers.add_parser('kinit', help='Request an initial ticket-granting ticket')
+    kinit_parser = subparsers.add_parser('kinit', help='Request an initial ticket-granting ticket', add_help=False)
     kinit_parser.set_defaults(func=kinit)
-    kinit_parser.set_defaults(help_func=kinit_parser.print_help)
 
-    klist_parser = subparsers.add_parser('klist', help='Lists the Kerberos principal and Kerberos tickets held in a  credentials  cache')
+    klist_parser = subparsers.add_parser('klist', help='Lists the Kerberos principal and Kerberos tickets held in a  credentials  cache', add_help=False)
     klist_parser.set_defaults(func=klist)
-    klist_parser.set_defaults(help_func=klist_parser.print_help)
 
-    kdestroy_parser = subparsers.add_parser('kdestroy', help='Destroys the user\'s active Kerberos authorization tickets')
+    kdestroy_parser = subparsers.add_parser('kdestroy', help='Destroys the user\'s active Kerberos authorization tickets', add_help=False)
     kdestroy_parser.set_defaults(func=kdestroy)
-    kdestroy_parser.set_defaults(help_func=kdestroy_parser.print_help)
 
-    ktutil_parser = subparsers.add_parser('ktutil', help='Invokes a command interface from which an administrator can read, write, or edit entries in a keytab')
+    ktutil_parser = subparsers.add_parser('ktutil', help='Invokes a command interface from which an administrator can read, write, or edit entries in a keytab', add_help=False)
     ktutil_parser.set_defaults(func=ktutil)
-    ktutil_parser.set_defaults(help_func=ktutil_parser.print_help)
 
     flush_parser = subparsers.add_parser('flush', help='Deletes all cache entries')
     flush_parser.set_defaults(func=flush)
