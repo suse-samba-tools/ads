@@ -504,9 +504,9 @@ def ldap_open(realm, user, password):
             auth_tokens = ldap.sasl.gssapi('')
             l.sasl_interactive_bind_s('', auth_tokens)
         except ldap.LDAPError as e:
-            print(e.message['info'])
-            if type(e.message) == dict and e.message.has_key('desc'):
-                print(e.message['desc'])
+            print(e.args[0]['info'])
+            if type(e.args[0]) == dict and 'desc' in e.args[0].keys():
+                print(e.args[0]['desc'])
             else:
                 print(e)
             exit()
