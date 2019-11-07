@@ -959,9 +959,6 @@ def start_samba():
         # If winbindd failed to start, try fixing it
         stop_samba()
 
-        # Stop apparmor, since that could block winbindd from starting
-        stop_samba('apparmor')
-
         # Try again
         ret = start_enable_service('samba', samba)
 
