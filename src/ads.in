@@ -15,6 +15,7 @@ from dns import resolver, reversename
 from samba.net import Net
 from samba.credentials import Credentials
 from samba.dcerpc import nbt
+from shutil import which
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
@@ -1322,6 +1323,21 @@ def info_cldap(args, unknownargs):
     print('DcSiteName:\t\t%s' % cldap_ret.server_site)
     print('ClientSiteName:\t\t%s' % cldap_ret.client_site)
 
+def kcc_cmd(name):
+    path = which(name)
+    if not path:
+        try:
+            out, _ = Popen(['rpm', '-ql', 'krb5-client'], stderr=open(os.devnull, 'w'), stdout=PIPE).communicate()
+            files = out.decode().split()
+            for f in files:
+                if os.path.split(f)[-1] == name:
+                    return f
+        except OSError:
+            pass
+    else:
+        return path
+    return name
+
 def kcc(cmd):
     if debug_level != '0':
         print(' '.join(cmd))
@@ -1333,22 +1349,22 @@ def kcc(cmd):
             exit(1)
 
 def kinit(args, unknownargs):
-    cmd = ['kinit']
+    cmd = [kcc_cmd('kinit')]
     cmd.extend(unknownargs)
     kcc(cmd)
 
 def klist(args, unknownargs):
-    cmd = ['klist']
+    cmd = [kcc_cmd('klist')]
     cmd.extend(unknownargs)
     kcc(cmd)
 
 def kdestroy(args, unknownargs):
-    cmd = ['kdestroy']
+    cmd = [kcc_cmd('kdestroy')]
     cmd.extend(unknownargs)
     kcc(cmd)
 
 def ktutil(args, unknownargs):
-    cmd = ['ktutil']
+    cmd = [kcc_cmd('ktutil')]
     cmd.extend(unknownargs)
     kcc(cmd)
 
