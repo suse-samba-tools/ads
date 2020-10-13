@@ -16,6 +16,10 @@ from samba.net import Net
 from samba.credentials import Credentials
 from samba.dcerpc import nbt
 from shutil import which
+from samba.netcmd import domain
+from samba.getopt import SambaOptions, CredentialsOptions
+from optparse import OptionParser
+from samba.logger import get_samba_logger
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
@@ -977,6 +981,20 @@ def start_samba():
 
     return ret
 
+def options(args):
+    parser = OptionParser()
+    sambaopts = SambaOptions(parser)
+    credopts = CredentialsOptions(parser)
+    if args.u:
+        credopts.creds.parse_string(args.u)
+    if args.w:
+        credopts.creds.set_password(args.w)
+        credopts.ask_for_password = False
+    else:
+        credopts.ask_for_password = True
+    credopts.machine_pass = False
+    return sambaopts, credopts
+
 def join(args, unknownargs):
     global admin, password, debug_level, winbindd, smb_conf, net, samba_tool, default_realm
     if len(unknownargs) > 0:
@@ -1015,6 +1033,12 @@ def join(args, unknownargs):
     print('Updating hostname...')
     hostname = update_hostname(args.n, args.domain)
 
+    sambaopts, credopts = options(args)
+    join = domain.cmd_domain_join()
+    join.logger = get_samba_logger(name="ads",
+                                   verbose=(args.d > 0 if args.d is not None else False),
+                                   quiet=False,
+                                   fmt="%(message)s")
     if not hasattr(args, 'domain_controller') or not args.domain_controller:
         # configure smb.conf
         print('Configuring smb.conf...')
@@ -1026,12 +1050,14 @@ def join(args, unknownargs):
 
         # net ads join the domain
         print('Joining the domain...')
-        cmd = [net, '--configfile=%s' % get_smb_conf(), 'ads', 'join', '-U%s%%%s' % (admin, password), '-d', debug_level, '-S', server]
-        if debug_level != '0':
-            print(' '.join(cmd))
-        ret = Popen(cmd).wait()
-        if ret != 0:
-            return ret
+        try:
+            join.run(sambaopts=sambaopts,
+                     credopts=credopts,
+                     domain=args.domain,
+                     role='MEMBER')
+        except Exception as e:
+            template = "{0} exception:\n{1}"
+            print(template.format(type(e).__name__, str(e)))
 
         # start winbindd
         sys.stdout.write('Starting winbindd... ')
@@ -1057,12 +1083,14 @@ def join(args, unknownargs):
 
         # samba-tool domain join
         print('Joining the domain as a Domain Controller...')
-        cmd = [samba_tool, 'domain', 'join', args.domain, 'DC', '-U%s@%s%%%s' % (admin, args.domain, password)]
-        if debug_level != '0':
-            print(' '.join(cmd))
-        ret = Popen(cmd).wait()
-        if ret != 0:
-            return ret
+        try:
+            join.run(sambaopts=sambaopts,
+                     credopts=credopts,
+                     domain=args.domain,
+                     role='DC')
+        except Exception as e:
+            template = "{0} exception:\n{1}"
+            print(template.format(type(e).__name__, str(e)))
 
         # configure smb.conf
         print('Configuring smb.conf...')
@@ -1620,5 +1648,4 @@ if __name__ == "__main__":
     if args.d:
         debug_level = args.d
 
-    exit(args.func(args, unknownargs))
-
+    sys.exit(args.func(args, unknownargs))
