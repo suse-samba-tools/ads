@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import sys, argparse, struct, os.path, datetime, uuid, re
+import sys, argparse, struct, os.path, datetime, uuid, re, pam
 from sys import exit
 from time import sleep
 from configparser import ConfigParser
@@ -369,53 +369,13 @@ def user_checklogin(args, unknownargs):
     if len(unknownargs) > 0 or not args.user:
         args.help_func()
         exit(1)
-    try:
-        import pam
-        p = pam.pam()
-        p.authenticate(args.user, getpass())
-        if p.code == 0:
-            print('Authentication succeeded')
-        else:
-            print('Authentication failed, reason: %s' % p.reason)
-    except ImportError:
-        try:
-            import PAM
-            p = PAM.pam()
-            p.start('passwd')
-            p.set_item(PAM.PAM_USER, args.user)
-            p.set_item(PAM.PAM_CONV, pam_conv)
-            try:
-                p.authenticate()
-            except:
-                print('Authentication failed')
-            else:
-                print('Authentication succeeded')
-            try:
-                p.acct_mgmt()
-            except:
-                print('User is not allowed')
-            else:
-                print('User is allowed')
-        except ImportError:
-            pass
-
-def user_checkaccess(args, unknownargs):
-    if len(unknownargs) > 0 or not args.user:
-        args.help_func()
-        exit(1)
-    try:
-        import PAM
-        p = PAM.pam()
-        p.start('passwd')
-        p.set_item(PAM.PAM_USER, args.user)
-        try:
-            p.acct_mgmt()
-        except:
-            print('User is not allowed')
-        else:
-            print('User is allowed')
-    except ImportError:
-        pass
+    p = pam.pam()
+    p.authenticate(args.user, getpass())
+    if p.code == 0:
+        print('Authentication succeeded')
+    else:
+        print('Authentication failed, reason: %s' % p.reason)
+    return p.code
 
 def passwd(args, unknownargs):
     global admin, password, debug_level, net
@@ -1487,9 +1447,6 @@ def argparser():
     checklogin_parser = user_subparsers.add_parser('checklogin')
     checklogin_parser.add_argument('user')
     checklogin_parser.set_defaults(func=user_checklogin)
-    checkaccess_parser = user_subparsers.add_parser('checkaccess')
-    checkaccess_parser.add_argument('user')
-    checkaccess_parser.set_defaults(func=user_checkaccess)
     user_parser.set_defaults(func=user)
     user_parser.set_defaults(help_func=user_parser.print_help)
 
