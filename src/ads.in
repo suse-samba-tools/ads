@@ -9,6 +9,7 @@ from base64 import b64decode, b64encode
 from ldap.modlist import addModlist as addlist
 from ldap.modlist import modifyModlist as modlist
 import pwd, grp
+import samba
 from samba.param import LoadParm, default_path
 from dns import resolver, reversename
 from samba.net import Net
@@ -28,7 +29,6 @@ import socket
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
 winbindd = '@SBINDIR@/winbindd'
-smbd = '@SBINDIR@/smbd'
 pam_auth_conf = '@PAM_D@/common-auth'
 pam_password_conf = '@PAM_D@/common-password'
 pam_session_conf = '@PAM_D@/common-session'
@@ -138,8 +138,7 @@ samba_version = None
 def get_samba_version():
     global samba_version
     if not samba_version:
-        data = Popen([smbd, '-V'], stdout=PIPE).communicate()[0].strip()
-        samba_version = re.findall('\d+\.\d+\.\d', data.decode('utf-8').split()[1])[0]
+        samba_version = re.findall('\d+\.\d+\.\d', samba.version)[0]
     return samba_version
 
 def get_default_realm_int():
