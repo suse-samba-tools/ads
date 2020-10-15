@@ -21,7 +21,7 @@ from getpass import getpass
 from samba import NTSTATUSError
 from samba.netcmd.domain import cmd_domain_join, cmd_domain_provision
 from samba.netcmd.dns import cmd_add_record
-from samba.netcmd.user import cmd_user_list, cmd_user_add, cmd_user_add_unix_attrs
+from samba.netcmd.user import cmd_user_list, cmd_user_add, cmd_user_add_unix_attrs, cmd_user_delete
 from samba.netcmd.group import cmd_group_list, cmd_group_add, cmd_group_add_members, cmd_group_add_unix_attrs
 from samba.getopt import SambaOptions, CredentialsOptions
 from optparse import OptionParser
@@ -327,12 +327,8 @@ def create_group(args):
         gunix_attrs.run(args.object, unix_attrs['gid_number'])
 
 def delete_user(args):
-    global debug_level, net
-    creds = get_creds(args)
-    cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
-    if debug_level != '0':
-        print(' '.join(cmd))
-    return Popen(cmd).wait()
+    delu = SambaToolFactory(cmd_user_delete, args)
+    delu.run(args.object)
 
 def delete_group(args):
     global debug_level, net
