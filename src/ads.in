@@ -21,11 +21,14 @@ from getpass import getpass
 from samba import NTSTATUSError
 from samba.netcmd.domain import cmd_domain_join, cmd_domain_provision
 from samba.netcmd.dns import cmd_add_record
+from samba.netcmd.user import cmd_user_list
+from samba.netcmd.group import cmd_group_list
 from samba.getopt import SambaOptions, CredentialsOptions
 from optparse import OptionParser
 from samba.logger import get_samba_logger
 import psutil, os, signal
 import socket
+from enum import Enum
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
@@ -42,9 +45,13 @@ service = '@SBINDIR@/service'
 systemctl = '@BINDIR@/systemctl'
 debug_level = '0'
 
+class Output(Enum):
+    STDOUT = 0
+    STDERR = 1
+    PIPE = 2
+
 class SambaToolFactory(object):
-    def __init__(self, scmd, args, creds=None):
-        self.sobj = scmd()
+    def __init__(self, scmd, args=None, creds=None, stdout=Output.STDOUT, stderr=Output.STDERR):
         self.args = args
 
         parser = OptionParser()
@@ -52,12 +59,17 @@ class SambaToolFactory(object):
         self.credopts = CredentialsOptions(parser)
         if creds:
             self.credopts.creds = creds
-        else:
+        elif self.args:
             self.credopts.creds = get_creds(self.args)
             self.credopts.ask_for_password = False
         self.credopts.machine_pass = False
+
+        self.outlog = StringIO()
+        self.errlog = StringIO()
+        self.sobj = scmd(errf=sys.stderr if stderr == Output.STDERR else self.errlog)
         self.sobj.logger = get_samba_logger(name='ads',
-                    verbose=(args.d > 0 if args.d is not None else False),
+                    stream=sys.stdout if stdout == Output.STDOUT else self.outlog,
+                    verbose=(args.d > 0 if args and args.d is not None else False),
                     quiet=False, fmt='%(message)s')
 
     def set_realm(self, realm):
@@ -65,9 +77,10 @@ class SambaToolFactory(object):
 
     def run(self, *args, **kwargs):
         try:
-            return self.sobj.run(sambaopts=self.sambaopts,
-                                 credopts=self.credopts,
-                                 *args, **kwargs)
+            self.sobj.run(sambaopts=self.sambaopts,
+                          credopts=self.credopts,
+                          *args, **kwargs)
+            return (self.outlog.getvalue(), self.errlog.getvalue())
         except Exception as e:
             sys.stderr.write('%s exception:\n%s\n' % type(e).__name__, str(e))
             return -1
@@ -161,18 +174,12 @@ def get_netbios_name(creds, realm):
     return results[0][1]['cn'][-1] if results and len(results) > 0 and len(results[0]) > 1 and 'cn' in results[0][1] and len(results[0][1]['cn']) > 0 else ''
 
 def user_list(creds, debug_level):
-    global net
-    cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'user', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm()]
-    if debug_level != '0':
-        print(' '.join(cmd))
-    return Popen(cmd, stdout=PIPE).communicate()[0].decode().strip().split('\n')
+    ulist = SambaToolFactory(cmd_user_list, creds=creds, stdout=Output.PIPE)
+    return ulist.run(H=get_default_realm())[0].strip().split('\n')
 
 def group_list(creds, debug_level):
-    global net
-    cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'group', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm()]
-    if debug_level != '0':
-        print(' '.join(cmd))
-    return Popen(cmd, stdout=PIPE).communicate()[0].decode().strip().split('\n')
+    glist = SambaToolFactory(cmd_group_list, creds=creds, stdout=Output.PIPE)
+    return glist.run(H=get_default_realm())[0].strip().split('\n')
 
 def getpwnam(user):
     try:
@@ -907,7 +914,7 @@ def join(args):
 
         # net ads join the domain
         print('Joining the domain...')
-        join.run(domain=args.domain, role='MEMBER')
+        ret = join.run(domain=args.domain, role='MEMBER')
         if ret == -1:
             return ret
 
@@ -928,7 +935,7 @@ def join(args):
 
         # samba-tool domain join
         print('Joining the domain as a Domain Controller...')
-        join.run(domain=args.domain, role='DC')
+        ret = join.run(domain=args.domain, role='DC')
         if ret == -1:
             return ret
 
