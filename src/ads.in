@@ -9,7 +9,7 @@ from base64 import b64decode, b64encode
 from ldap.modlist import addModlist as addlist
 from ldap.modlist import modifyModlist as modlist
 import pwd, grp
-from samba.param import LoadParm
+from samba.param import LoadParm, default_path
 from dns import resolver, reversename
 from samba.net import Net
 from samba.credentials import Credentials
@@ -130,13 +130,6 @@ def clean_samba_db():
                 if fname.endswith('.tdb') or fname.endswith('.ldb'):
                     os.remove(os.path.join(root, fname))
 
-smb_conf = None
-def get_smb_conf():
-    global smb_conf
-    if not smb_conf:
-        smb_conf = Popen(['grep', 'CONFIGFILE'], stdin=Popen([smbd, '-b'], stdout=PIPE).stdout, stdout=PIPE).communicate()[0].decode('utf-8').strip().split(':')[-1].strip()
-    return smb_conf
-
 samba_version = None
 def get_samba_version():
     global samba_version
@@ -147,7 +140,7 @@ def get_samba_version():
 
 def get_default_realm_int():
     lp = LoadParm()
-    lp.load(get_smb_conf())
+    lp.load_default()
     return lp.get('realm')
 
 default_realm = None
@@ -165,14 +158,14 @@ def get_netbios_name(creds, realm):
 
 def user_list(creds, debug_level):
     global net
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm()]
+    cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'user', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm()]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd, stdout=PIPE).communicate()[0].decode().strip().split('\n')
 
 def group_list(creds, debug_level):
     global net
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm()]
+    cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'group', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm()]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd, stdout=PIPE).communicate()[0].decode().strip().split('\n')
@@ -312,7 +305,7 @@ def create_user(args):
     creds = get_creds(args)
     if not args.e:
         new_user_pass = getpass("New password: ")
-        cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
+        cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
             print(' '.join(cmd))
         ret = Popen(cmd).wait()
@@ -324,7 +317,7 @@ def create_user(args):
 def create_group(args):
     global debug_level, net
     creds = get_creds(args)
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
+    cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd).wait()
@@ -336,7 +329,7 @@ def delete(args):
 def delete_user(args):
     global debug_level, net
     creds = get_creds(args)
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
+    cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd).wait()
@@ -344,7 +337,7 @@ def delete_user(args):
 def delete_group(args):
     global debug_level, net
     creds = get_creds(args)
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
+    cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd).wait()
@@ -365,7 +358,7 @@ def passwd(args):
         user = args.object
     else:
         user = getuser()
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'password', user, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
+    cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'password', user, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd).wait()
@@ -547,7 +540,7 @@ def config_ntp(servers):
     Popen(['service', 'ntpd', 'start']).wait()
 
 def config_smb_conf(creds, domain, autogen=False, server=False):
-    smb_conf = get_smb_conf()
+    smb_conf = default_path()
     conf = SMBConfigParser()
     if os.path.exists(smb_conf):
         conf.read(smb_conf)
@@ -842,7 +835,7 @@ def start_enable_service(name, binpath):
         if Popen([service, name, 'restart'], stdout=PIPE, stderr=PIPE).wait() == 0:
             return
     if os.path.exists(binpath):
-        if Popen([binpath, '-d', debug_level, '--configfile=%s' % get_smb_conf(), '-D'], stdout=PIPE, stderr=PIPE).wait() == 0:
+        if Popen([binpath, '-d', debug_level, '--configfile=%s' % default_path(), '-D'], stdout=PIPE, stderr=PIPE).wait() == 0:
             return
     return -1
 
@@ -856,8 +849,8 @@ def stop_disable_service(name):
 def stash_config():
     global krb5_conf
     # Stash the old smb.conf
-    if os.path.exists(get_smb_conf()):
-        smb_conf = get_smb_conf()
+    if os.path.exists(default_path()):
+        smb_conf = default_path()
         now = datetime.datetime.now()
         new_smb_conf = '%s.%s' % (smb_conf, now.strftime('%b-%d-%Y_%I:%M%p'))
         print('Stashing smb.conf to %s...' % new_smb_conf)
@@ -1078,7 +1071,7 @@ def provision(args):
 
     print('Configuring kerberos...')
     lp = LoadParm()
-    lp.load(get_smb_conf())
+    lp.load_default()
     cmd = ['ln', '-sf', os.path.join(lp.get('private directory'), 'krb5.conf'), krb5_conf]
     if debug_level != '0':
         print(' '.join(cmd))
@@ -1114,7 +1107,7 @@ def demote(args):
     Popen(cmd).wait()
 
     lp = LoadParm()
-    lp.load(get_smb_conf())
+    lp.load_default()
     print('Unmounting the sysvol...')
     Popen(['umount', lp.get('path', 'sysvol')]).wait()
 
@@ -1132,9 +1125,9 @@ def demote(args):
     print('Deleting samba database files...')
     clean_samba_db()
 
-    if os.path.exists(get_smb_conf()):
+    if os.path.exists(default_path()):
         print('Deleting smb.conf...')
-        os.remove(get_smb_conf())
+        os.remove(default_path())
     if os.path.exists(krb5_conf):
         print('Deleting krb5.conf...')
         os.remove(krb5_conf)
@@ -1143,7 +1136,7 @@ def demote(args):
 def unjoin(args):
     global debug_level, net, krb5_conf
     lp = LoadParm()
-    lp.load(get_smb_conf())
+    lp.load_default()
     if lp.get('server role') == 'active directory domain controller':
         demote(args)
     else:
@@ -1173,9 +1166,9 @@ def unjoin(args):
         # Cleanup old samba database files
         clean_samba_db()
 
-        if os.path.exists(get_smb_conf()):
+        if os.path.exists(default_path()):
             print('Deleting smb.conf...')
-            os.remove(get_smb_conf())
+            os.remove(default_path())
         if os.path.exists(krb5_conf):
             print('Deleting krb5.conf...')
             os.remove(krb5_conf)
@@ -1190,7 +1183,7 @@ def info_domain(args):
 def info_cldap(args):
     creds = get_creds(args)
     lp = LoadParm()
-    lp.load(get_smb_conf())
+    lp.load_default()
 
     netcmd = Net(creds, lp)
     cldap_ret = netcmd.finddc(address=args.server, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
@@ -1262,7 +1255,7 @@ def flush(args):
     Popen(cmd).wait()
 
     lp = LoadParm()
-    lp.load(get_smb_conf())
+    lp.load_default()
     if lp.get('server role') == 'active directory domain controller':
         start_samba()
     else:
