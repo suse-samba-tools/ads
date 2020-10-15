@@ -926,13 +926,6 @@ def join(args):
         # Cleanup old samba database files
         clean_samba_db()
 
-        # Kinit as the admin
-        print('kinit as %s...' % admin)
-        if kinit_admin(creds) != 0:
-            print('kinit failed')
-        if debug_level != '0':
-            Popen(['klist']).wait()
-
         # samba-tool domain join
         print('Joining the domain as a Domain Controller...')
         join.run(domain=args.domain, role='DC')
