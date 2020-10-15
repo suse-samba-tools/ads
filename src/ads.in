@@ -17,11 +17,10 @@ from samba.net import Net
 from samba.credentials import Credentials
 from samba.dcerpc import nbt
 from shutil import which
-from getpass import getpass
 from samba import NTSTATUSError
 from samba.netcmd.domain import cmd_domain_join, cmd_domain_provision
 from samba.netcmd.dns import cmd_add_record
-from samba.netcmd.user import cmd_user_list, cmd_user_add, cmd_user_add_unix_attrs, cmd_user_delete
+from samba.netcmd.user import cmd_user_list, cmd_user_add, cmd_user_add_unix_attrs, cmd_user_delete, cmd_user_password
 from samba.netcmd.group import cmd_group_list, cmd_group_add, cmd_group_add_members, cmd_group_add_unix_attrs, cmd_group_delete
 from samba.getopt import SambaOptions, CredentialsOptions
 from optparse import OptionParser
@@ -344,16 +343,26 @@ def user_checklogin(args):
     return p.code
 
 def passwd(args):
-    global debug_level, net
-    creds = get_creds(args)
-    if args.object:
-        user = args.object
+    if args.r:
+        password = samba.generate_random_password(8, 20)
     else:
-        user = getuser()
-    cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'password', user, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
-    if debug_level != '0':
-        print(' '.join(cmd))
-    return Popen(cmd).wait()
+        password = None
+    while True:
+        if password is not None and password != '':
+            break
+        password = getpass("New Password: ")
+        passwordverify = getpass("Retype Password: ")
+        if not password == passwordverify:
+            password = None
+            print("Sorry, passwords do not match.")
+    creds = get_creds(args)
+    net = Net(creds)
+    if args.object:
+        net.set_password(args.object, get_default_realm(), password)
+    else:
+        net.change_password(password)
+    if args.o:
+        print(password)
 
 # http://stackoverflow.com/questions/33188413/python-code-to-convert-from-objectsid-to-sid-representation
 def convert_objsid_to_sidstr(binary):
@@ -1336,6 +1345,8 @@ def argparser():
     list_parser.set_defaults(help_func=list_parser.print_help)
 
     passwd_parser = subparsers.add_parser('passwd', help='Change Active Directory user passwords')
+    passwd_parser.add_argument('-r', help='Sets the password to a random value')
+    passwd_parser.add_argument('-o', help='Will output the new password to stdout')
     passwd_parser.add_argument('object', nargs='?')
     passwd_parser.set_defaults(func=passwd)
     passwd_parser.set_defaults(help_func=passwd_parser.print_help)
