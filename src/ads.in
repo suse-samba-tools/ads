@@ -175,11 +175,11 @@ def get_netbios_name(creds, realm):
 
 def user_list(creds, debug_level):
     ulist = SambaToolFactory(cmd_user_list, creds=creds, stdout=Output.PIPE)
-    return ulist.run(H=get_default_realm())[0].strip().split('\n')
+    return ulist.run()[0].strip().split('\n')
 
 def group_list(creds, debug_level):
     glist = SambaToolFactory(cmd_group_list, creds=creds, stdout=Output.PIPE)
-    return glist.run(H=get_default_realm())[0].strip().split('\n')
+    return glist.run()[0].strip().split('\n')
 
 def getpwnam(user):
     try:
@@ -306,7 +306,7 @@ def create_user(args):
         unix_attrs['login_shell'] = data[6]
     if not args.e:
         uadd = SambaToolFactory(cmd_user_add, args)
-        uadd.run(args.object, password=new_user_pass, H=get_default_realm(), **unix_attrs)
+        uadd.run(args.object, password=new_user_pass, **unix_attrs)
     else:
         uunix_attrs = SambaToolFactory(cmd_user_add_unix_attrs, args)
         uadd.run(args.object, uid_number, **unix_attrs)
@@ -321,10 +321,10 @@ def create_group(args):
         unix_attrs['gid_number'] = data[2]
     if not args.e:
         gadd = SambaToolFactory(cmd_group_add, args)
-        gadd.run(args.object, H=get_default_realm(), **unix_attrs)
+        gadd.run(args.object, **unix_attrs)
     elif 'gid_number' in unix_attrs:
         gunix_attrs = SambaToolFactory(cmd_group_add_unix_attrs, args)
-        gunix_attrs.run(args.object, unix_attrs['gid_number'], H=get_default_realm())
+        gunix_attrs.run(args.object, unix_attrs['gid_number'])
 
 def delete_user(args):
     global debug_level, net
