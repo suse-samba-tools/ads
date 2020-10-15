@@ -213,7 +213,7 @@ def get_creds(args):
     if args.u:
         creds.parse_string(args.u)
     else:
-        creds.parse_string(input('Username: '))
+        creds.parse_string(getuser())
     if args.w:
         creds.set_password(args.w)
     else:
