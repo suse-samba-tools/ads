@@ -1526,5 +1526,7 @@ if __name__ == "__main__":
 
     if args.func in [kinit, klist, kdestroy, ktutil]:
         sys.exit(args.func(unknownargs))
-    else:
+    elif len(unknownargs) == 0:
         sys.exit(args.func(args))
+    else:
+        sys.exit(args.help_func())
