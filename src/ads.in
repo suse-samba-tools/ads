@@ -10,6 +10,7 @@ from ldap.modlist import addModlist as addlist
 from ldap.modlist import modifyModlist as modlist
 import pwd, grp
 import samba
+from samba.samdb import SamDB
 from samba.param import LoadParm, default_path
 from dns import resolver, reversename
 from samba.net import Net
@@ -404,50 +405,16 @@ def __format_username(username, realm):
     dom = cldap_dom if dom else dom
     return '%s@%s' % (user, dom.upper())
 
-def kinit_admin_try(creds, realm):
-    global debug_level
-    cmd = [kcc_cmd('kinit')]
-    if debug_level != '0':
-        cmd.append('-V')
-    cmd.append(__format_username(creds.get_username(), realm))
-    p = Popen(cmd, stdin=PIPE, stderr=PIPE)
-    p.stdin.write(('%s\n' % creds.get_password()).encode())
-    p.stdin.flush()
-    return p
-
-def kinit_admin(creds):
-    realm = get_default_realm()
-    p = kinit_admin_try(creds, realm)
-    _, err = p.communicate()
-    if p.returncode == 0:
-        return p.returncode
-    else:
-        m = re.match(r'kinit: Credential cache directory ([/\w]+) does not exist while getting default ccache', err.decode())
-        if m:
-            os.makedirs(m.group(1), exist_ok=True)
-            p = kinit_admin_try(creds, realm)
-            return p.wait()
-    return -1
-
 ldap_open_connections = {}
 def ldap_open(realm, creds):
     global ldap_open_connections
     key = '%s:%s' % (realm, creds.get_username())
     if key not in ldap_open_connections.keys():
-        if kinit_admin(creds.get_username(), creds.get_password()) != 0:
-            print('Authentication failed')
-            sys.exit()
-        l = ldap.initialize('ldap://%s' % realm)
-        try:
-            auth_tokens = ldap.sasl.gssapi('')
-            l.sasl_interactive_bind_s('', auth_tokens)
-        except ldap.LDAPError as e:
-            print(e.args[0]['info'])
-            if type(e.args[0]) == dict and 'desc' in e.args[0].keys():
-                print(e.args[0]['desc'])
-            else:
-                print(e)
-            sys.exit()
+        lp = LoadParm()
+        lp.load_default()
+        l = SamDB(url="ldap://%s" % realm,
+                  session_info=system_session(),
+                  credentials=creds, lp=lp)
         ldap_open_connections[key] = l
     return ldap_open_connections[key]
 
