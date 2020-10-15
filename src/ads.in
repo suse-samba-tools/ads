@@ -288,14 +288,6 @@ def nss_getgrent(args):
     creds = get_creds(args)
     getgrent(creds, debug_level)
 
-def nss(args):
-    args.help_func()
-    sys.exit(1)
-
-def create(args):
-    args.help_func()
-    sys.exit(1)
-
 def create_user(args):
     unix_attrs = {}
     if args.i:
@@ -333,10 +325,6 @@ def create_group(args):
     elif 'gid_number' in unix_attrs:
         gunix_attrs = SambaToolFactory(cmd_group_add_unix_attrs, args)
         gunix_attrs.run(args.object, unix_attrs['gid_number'], H=get_default_realm())
-
-def delete(args):
-    args.help_func()
-    sys.exit(1)
 
 def delete_user(args):
     global debug_level, net
@@ -1144,10 +1132,6 @@ def unjoin(args):
             print('Deleting krb5.conf...')
             os.remove(krb5_conf)
 
-def info(args):
-    args.help_func()
-    sys.exit(1)
-
 def info_domain(args):
     print(get_default_realm())
 
@@ -1314,7 +1298,7 @@ def argparser():
     getpwent_parser.set_defaults(func=nss_getpwent)
     getgrent_parser = nss_subparsers.add_parser('getgrent')
     getgrent_parser.set_defaults(func=nss_getgrent)
-    nss_parser.set_defaults(func=nss)
+    nss_parser.set_defaults(func=lambda args: args.help_func())
     nss_parser.set_defaults(help_func=nss_parser.print_help)
 
     user_parser = subparsers.add_parser('user', help='Manage Active Directory users')
@@ -1336,7 +1320,7 @@ def argparser():
     create_group_parser = create_subparsers.add_parser('group')
     create_group_parser.add_argument('object', help='group')
     create_group_parser.set_defaults(func=create_group)
-    create_parser.set_defaults(func=create)
+    create_parser.set_defaults(func=lambda args: args.help_func())
     create_parser.set_defaults(help_func=create_parser.print_help)
 
     delete_parser = subparsers.add_parser('delete', help='Delete Active Directory users/groups')
@@ -1347,7 +1331,7 @@ def argparser():
     delete_group_parser = delete_subparsers.add_parser('group')
     delete_group_parser.add_argument('object', help='group')
     delete_group_parser.set_defaults(func=delete_group)
-    delete_parser.set_defaults(func=delete)
+    delete_parser.set_defaults(func=lambda args: args.help_func())
     delete_parser.set_defaults(help_func=delete_parser.print_help)
 
     list_parser = subparsers.add_parser('list', help='List Active Directory users/groups')
@@ -1356,7 +1340,7 @@ def argparser():
     list_users_parser.set_defaults(func=nss_getpwent)
     list_groups_parser = list_subparsers.add_parser('groups')
     list_groups_parser.set_defaults(func=nss_getgrent)
-    list_parser.set_defaults(func=nss)
+    list_parser.set_defaults(func=lambda args: args.help_func())
     list_parser.set_defaults(help_func=list_parser.print_help)
 
     passwd_parser = subparsers.add_parser('passwd', help='Change Active Directory user passwords')
@@ -1434,7 +1418,7 @@ def argparser():
     info_cldap_parser = info_subparsers.add_parser('cldap')
     info_cldap_parser.add_argument('server')
     info_cldap_parser.set_defaults(func=info_cldap)
-    info_parser.set_defaults(func=info)
+    info_parser.set_defaults(func=lambda args: args.help_func())
     info_parser.set_defaults(help_func=info_parser.print_help)
 
     kinit_parser = subparsers.add_parser('kinit', help='Request an initial ticket-granting ticket', add_help=False)
