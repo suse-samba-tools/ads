@@ -22,7 +22,7 @@ from samba import NTSTATUSError
 from samba.netcmd.domain import cmd_domain_join, cmd_domain_provision
 from samba.netcmd.dns import cmd_add_record
 from samba.netcmd.user import cmd_user_list, cmd_user_add, cmd_user_add_unix_attrs, cmd_user_delete
-from samba.netcmd.group import cmd_group_list, cmd_group_add, cmd_group_add_members, cmd_group_add_unix_attrs
+from samba.netcmd.group import cmd_group_list, cmd_group_add, cmd_group_add_members, cmd_group_add_unix_attrs, cmd_group_delete
 from samba.getopt import SambaOptions, CredentialsOptions
 from optparse import OptionParser
 from samba.logger import get_samba_logger
@@ -331,12 +331,8 @@ def delete_user(args):
     delu.run(args.object)
 
 def delete_group(args):
-    global debug_level, net
-    creds = get_creds(args)
-    cmd = [net, '--configfile=%s' % default_path(), 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
-    if debug_level != '0':
-        print(' '.join(cmd))
-    return Popen(cmd).wait()
+    delg = SambaToolFactory(cmd_group_delete, args)
+    delg.run(args.object)
 
 def user_checklogin(args):
     p = pam.pam()
