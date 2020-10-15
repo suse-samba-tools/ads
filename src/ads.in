@@ -39,8 +39,6 @@ samba_tool = '@BINDIR@/samba-tool'
 samba = '@SBINDIR@/samba'
 service = '@SBINDIR@/service'
 systemctl = '@BINDIR@/systemctl'
-admin = None
-password = None
 debug_level = '0'
 
 class SambaToolFactory(object):
@@ -159,24 +157,22 @@ def get_default_realm():
         default_realm = get_default_realm_int()
     return default_realm
 
-def get_netbios_name(realm):
-    global admin, password
-    admin, password = get_creds(admin, password)
-    l = ldap_open(realm, admin, password)
+def get_netbios_name(creds, realm):
+    l = ldap_open(realm, creds)
 
     results = l.search_s('CN=Partitions,CN=Configuration,%s' % realm_to_dn(realm), ldap.SCOPE_SUBTREE, '(netbiosname=*)', [])
     return results[0][1]['cn'][-1] if results and len(results) > 0 and len(results[0]) > 1 and 'cn' in results[0][1] and len(results[0][1]['cn']) > 0 else ''
 
-def user_list(admin, password, debug_level):
+def user_list(creds, debug_level):
     global net
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
+    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm()]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd, stdout=PIPE).communicate()[0].decode().strip().split('\n')
 
-def group_list(admin, password, debug_level):
+def group_list(creds, debug_level):
     global net
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
+    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm()]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd, stdout=PIPE).communicate()[0].decode().strip().split('\n')
@@ -194,18 +190,18 @@ def getgrnam(group):
     except KeyError:
         return group
 
-def getpwent(admin, password, debug_level):
+def getpwent(creds, debug_level):
     ulist = []
     for d in pwd.getpwall():
         ulist.append(':'.join([str(i) for i in d]))
-    for u in user_list(admin, password, debug_level):
+    for u in user_list(creds, debug_level):
         ulist.append(getpwnam(u))
     return ulist
 
-def getgrent(admin, password, debug_level):
+def getgrent(creds, debug_level):
     for d in grp.getgrall():
         print(':'.join([str(i) for i in d[:-1]])+':'+','.join(d.gr_mem))
-    for g in group_list(admin, password, debug_level):
+    for g in group_list(creds, debug_level):
         print(getgrnam(g))
 
 def get_creds(args):
@@ -232,8 +228,7 @@ def pam_conv(auth, query_list):
     return resp
 
 def ldap_posix_user(user, container):
-    global admin, password
-    l = ldap_open(get_default_realm(), admin, password)
+    l = ldap_open(get_default_realm(), creds)
     results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % args.object, ['sAMAccountName', 'uidNumber', 'gidNumber', 'gecos', 'homeDirectory', 'loginShell'])
     if len(results) == 1:
         result = results[0][1]
@@ -244,9 +239,8 @@ def ldap_posix_user(user, container):
         return data
 
 def ldap_posix_pwent(container):
-    global admin, password
     ulist = []
-    for u in user_list(admin, password, debug_level):
+    for u in user_list(creds, debug_level):
         ulist.append(ldap_posix_user(u, container))
     return ulist
 
@@ -275,29 +269,29 @@ def nss_getgrnam_getgrid(args):
         print(gr)
 
 def nss_getpwent(args):
-    global admin, password, debug_level
-    admin, password = get_creds(admin, password)
+    global debug_level
+    creds = get_creds(args)
     if 'direct' in args and args.direct:
         ulist = ldap_posix_pwent(user_container())
     else:
-        ulist = getpwent(admin, password, debug_level)
+        ulist = getpwent(creds, debug_level)
     for pw in ulist:
         if pw and pw.strip():
             print(pw)
 
 def nss_getgrent(args):
-    global admin, password, debug_level
-    admin, password = get_creds(admin, password)
-    getgrent(admin, password, debug_level)
+    global debug_level
+    creds = get_creds(args)
+    getgrent(creds, debug_level)
 
 def nss(args):
     args.help_func()
     sys.exit(1)
 
 def unix_enable_user(name, passwd, container=None):
-    global admin, password, debug_level
-    admin, password = get_creds(admin, password)
-    l = ldap_open(get_default_realm(), admin, password)
+    global debug_level
+    creds = get_creds(args)
+    l = ldap_open(get_default_realm(), creds)
     dn = getdn(args.object)
     data = passwd.split(':')
 
@@ -314,11 +308,11 @@ def create(args):
     sys.exit(1)
 
 def create_user(args):
-    global admin, password, debug_level, net
-    admin, password = get_creds(admin, password)
+    global debug_level, net
+    creds = get_creds(args)
     if not args.e:
         new_user_pass = getpass("New password: ")
-        cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+        cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
         if debug_level != '0':
             print(' '.join(cmd))
         ret = Popen(cmd).wait()
@@ -328,9 +322,9 @@ def create_user(args):
         return unix_enable_user(args.object, args.i, args.c)
 
 def create_group(args):
-    global admin, password, debug_level, net
-    admin, password = get_creds(admin, password)
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+    global debug_level, net
+    creds = get_creds(args)
+    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd).wait()
@@ -340,17 +334,17 @@ def delete(args):
     sys.exit(1)
 
 def delete_user(args):
-    global admin, password, debug_level, net
-    admin, password = get_creds(admin, password)
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+    global debug_level, net
+    creds = get_creds(args)
+    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd).wait()
 
 def delete_group(args):
-    global admin, password, debug_level, net
-    admin, password = get_creds(admin, password)
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+    global debug_level, net
+    creds = get_creds(args)
+    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd).wait()
@@ -365,13 +359,13 @@ def user_checklogin(args):
     return p.code
 
 def passwd(args):
-    global admin, password, debug_level, net
-    admin, password = get_creds(admin, password)
+    global debug_level, net
+    creds = get_creds(args)
     if args.object:
         user = args.object
     else:
         user = getuser()
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'password', user, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
+    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'password', user, '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-S', get_default_realm(), '-d', debug_level]
     if debug_level != '0':
         print(' '.join(cmd))
     return Popen(cmd).wait()
@@ -414,20 +408,20 @@ def __format_username(username, realm):
     dom = cldap_dom if dom else dom
     return '%s@%s' % (user, dom.upper())
 
-def kinit_admin_try(user, password, realm):
+def kinit_admin_try(creds, realm):
     global debug_level
     cmd = [kcc_cmd('kinit')]
     if debug_level != '0':
         cmd.append('-V')
-    cmd.append(__format_username(user, realm))
+    cmd.append(__format_username(creds.get_username(), realm))
     p = Popen(cmd, stdin=PIPE, stderr=PIPE)
-    p.stdin.write(('%s\n' % password).encode())
+    p.stdin.write(('%s\n' % creds.get_password()).encode())
     p.stdin.flush()
     return p
 
-def kinit_admin(user, password):
+def kinit_admin(creds):
     realm = get_default_realm()
-    p = kinit_admin_try(user, password, realm)
+    p = kinit_admin_try(creds, realm)
     _, err = p.communicate()
     if p.returncode == 0:
         return p.returncode
@@ -435,16 +429,16 @@ def kinit_admin(user, password):
         m = re.match(r'kinit: Credential cache directory ([/\w]+) does not exist while getting default ccache', err.decode())
         if m:
             os.makedirs(m.group(1), exist_ok=True)
-            p = kinit_admin_try(user, password, realm)
+            p = kinit_admin_try(creds, realm)
             return p.wait()
     return -1
 
 ldap_open_connections = {}
-def ldap_open(realm, user, password):
+def ldap_open(realm, creds):
     global ldap_open_connections
-    key = '%s:%s' % (realm, user)
+    key = '%s:%s' % (realm, creds.get_username())
     if key not in ldap_open_connections.keys():
-        if kinit_admin(user, password) != 0:
+        if kinit_admin(creds.get_username(), creds.get_password()) != 0:
             print('Authentication failed')
             sys.exit()
         l = ldap.initialize('ldap://%s' % realm)
@@ -464,10 +458,10 @@ def ldap_open(realm, user, password):
 wkguiduc = 'A9D1CA15768811D1ADED00C04FD8D5CD'
 uc = None
 def user_container():
-    global admin, password, uc, wkguiduc
+    global uc, wkguiduc
     if not uc:
-        admin, password = get_creds(admin, password)
-        l = ldap_open(get_default_realm(), admin, password)
+        creds = get_creds(args)
+        l = ldap_open(get_default_realm(), creds)
         results = l.search_s('<WKGUID=%s,%s>' % (wkguiduc, realm_to_dn(get_default_realm())), ldap.SCOPE_SUBTREE, '(objectClass=container)', ['distinguishedName'])
         uc = results[0][1]['distinguishedName'][-1]
     return uc
@@ -486,10 +480,10 @@ def print_ldap_object(obj, sidstr):
                 print('%s: %s' % (key, ob))
 
 def attrs(args):
-    global admin, password, debug_level
+    global debug_level
     if args.object:
-        admin, password = get_creds(admin, password)
-        l = ldap_open(get_default_realm(), admin, password)
+        creds = get_creds(args)
+        l = ldap_open(get_default_realm(), creds)
         container = args.c
         if not container:
             container = user_container()
@@ -503,18 +497,17 @@ def attrs(args):
         args.help_func()
 
 def getdn(cn, container=None):
-    global admin, password
-    admin, password = get_creds(admin, password)
-    l = ldap_open(get_default_realm(), admin, password)
+    creds = get_creds(args)
+    l = ldap_open(get_default_realm(), creds)
     if not container:
         container = user_container()
     results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % cn, ['distinguishedName'])
     return results[0][1]['distinguishedName'][-1]
 
 def setattrs(args):
-    global admin, password, debug_level
-    admin, password = get_creds(admin, password)
-    l = ldap_open(get_default_realm(), admin, password)
+    global debug_level
+    creds = get_creds(args)
+    l = ldap_open(get_default_realm(), creds)
     dn = getdn(args.object)
     ldif_old = {args.attribute: ['']}
     ldif = {args.attribute: [args.value]}
@@ -553,7 +546,7 @@ def config_ntp(servers):
     # restart ntp
     Popen(['service', 'ntpd', 'start']).wait()
 
-def config_smb_conf(domain, autogen=False, server=False):
+def config_smb_conf(creds, domain, autogen=False, server=False):
     smb_conf = get_smb_conf()
     conf = SMBConfigParser()
     if os.path.exists(smb_conf):
@@ -561,7 +554,7 @@ def config_smb_conf(domain, autogen=False, server=False):
     if 'global' not in conf.sections():
         conf.add_section('global')
     if not server:
-        netbios = get_netbios_name(domain)
+        netbios = get_netbios_name(creds, domain)
         conf.set('global', 'security', 'ads')
         conf.set('global', 'workgroup', domain.split('.')[0].upper())
         conf.set('global', 'realm', domain.upper())
@@ -943,7 +936,7 @@ def join(args):
     if not hasattr(args, 'domain_controller') or not args.domain_controller:
         # configure smb.conf
         print('Configuring smb.conf...')
-        config_smb_conf(args.domain, autogen=args.autogen_posix_attrs)
+        config_smb_conf(creds, args.domain, autogen=args.autogen_posix_attrs)
 
         # configure pam_winbind.conf
         print('Configuring pam_winbind.conf...')
@@ -972,7 +965,7 @@ def join(args):
 
         # Kinit as the admin
         print('kinit as %s...' % admin)
-        if kinit_admin(admin, password) != 0:
+        if kinit_admin(creds) != 0:
             print('kinit failed')
         if debug_level != '0':
             Popen(['klist']).wait()
@@ -985,7 +978,7 @@ def join(args):
 
         # configure smb.conf
         print('Configuring smb.conf...')
-        config_smb_conf(args.domain, server=True)
+        config_smb_conf(creds, args.domain, server=True)
 
         # configure pam_winbind.conf
         print('Configuring pam_winbind.conf...')
@@ -1014,7 +1007,7 @@ def join(args):
         print('Verifying the objectGUID Record...')
         sleep(3) # Creating the objectGUID dies if we don't sleep a bit
         objectGUID = None
-        l = ldap_open(args.domain, admin, password)
+        l = ldap_open(args.domain, creds)
         results = l.search_s("CN=Sites,CN=Configuration,%s" % realm_to_dn(args.domain), ldap.SCOPE_SUBTREE, "(invocationId=*)", ["objectguid"])
         for result in results:
             if 'CN=NTDS Settings,CN=%s,' % hostname[1] in result[0]:
@@ -1077,7 +1070,7 @@ def provision(args):
 
     # configure smb.conf
     print('Configuring smb.conf...')
-    config_smb_conf(args.domain, server=True)
+    config_smb_conf(creds, args.domain, server=True)
 
     # configure pam_winbind.conf
     print('Configuring pam_winbind.conf...')
@@ -1108,14 +1101,14 @@ def provision(args):
     configure_pam()
 
 def demote(args):
-    global admin, password, debug_level, samba_tool, krb5_conf
+    global debug_level, samba_tool, krb5_conf
     if getuser() != 'root':
         sys.stderr.write('ads demote must be run as root\n')
         sys.exit(1)
-    admin, password = get_creds(admin, password)
+    creds = get_creds(args)
 
     print('Demoting the ADDC...')
-    cmd = [samba_tool, 'domain', 'demote', '-d', debug_level, '-U%s%%%s' % (admin, password)]
+    cmd = [samba_tool, 'domain', 'demote', '-d', debug_level, '-U%s%%%s' % (creds.get_username(), creds.get_password())]
     if debug_level != '0':
         print(' '.join(cmd[:-1]), '-U%s' % admin)
     Popen(cmd).wait()
@@ -1148,7 +1141,7 @@ def demote(args):
 
 
 def unjoin(args):
-    global admin, password, debug_level, net, krb5_conf
+    global debug_level, net, krb5_conf
     lp = LoadParm()
     lp.load(get_smb_conf())
     if lp.get('server role') == 'active directory domain controller':
@@ -1157,10 +1150,10 @@ def unjoin(args):
         if getuser() != 'root':
             sys.stderr.write('ads unjoin must be run as root\n')
             sys.exit(1)
-        admin, password = get_creds(admin, password)
+        creds = get_creds(args)
 
         print('Unjoining the domain...')
-        cmd = [net, 'ads', 'leave', '-d', debug_level, '-U%s%%%s' % (admin, password)]
+        cmd = [net, 'ads', 'leave', '-d', debug_level, '-U%s%%%s' % (creds.get_username(), creds.get_password())]
         if debug_level != '0':
             print(' '.join(cmd[:-1]), '-U%s' % admin)
         Popen(cmd).wait()
@@ -1195,11 +1188,7 @@ def info_domain(args):
     print(get_default_realm())
 
 def info_cldap(args):
-    global admin, password
-    admin, password = get_creds(admin, password)
-    creds = Credentials()
-    creds.set_username(admin)
-    creds.set_password(password)
+    creds = get_creds(args)
     lp = LoadParm()
     lp.load(get_smb_conf())
 
@@ -1517,10 +1506,6 @@ if __name__ == "__main__":
     if args.pam_password_conf:
         pam_password_conf = args.pam_password_conf
 
-    if args.u:
-        admin = args.u
-    if args.w:
-        password = args.w
     if args.d:
         debug_level = args.d
 
