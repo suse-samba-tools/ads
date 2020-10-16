@@ -2,12 +2,10 @@
 import sys, argparse, struct, os.path, datetime, uuid, re, pam
 from time import sleep
 from configparser import ConfigParser
-import netifaces, ldap
+import netifaces
 from getpass import getpass, getuser
 from subprocess import Popen, PIPE
 from base64 import b64decode, b64encode
-from ldap.modlist import addModlist as addlist
-from ldap.modlist import modifyModlist as modlist
 import pwd, grp
 import samba
 from samba.samdb import SamDB
@@ -28,7 +26,7 @@ from samba.logger import get_samba_logger
 import psutil, os, signal
 import socket
 from enum import Enum
-import tdb
+import tdb, ldb
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
@@ -170,7 +168,7 @@ def get_default_realm():
 def get_netbios_name(creds, realm):
     l = ldap_open(realm, creds)
 
-    results = l.search_s('CN=Partitions,CN=Configuration,%s' % realm_to_dn(realm), ldap.SCOPE_SUBTREE, '(netbiosname=*)', [])
+    results = l.search('CN=Partitions,CN=Configuration,%s' % realm_to_dn(realm), ldb.SCOPE_SUBTREE, '(netbiosname=*)', [])
     return results[0][1]['cn'][-1] if results and len(results) > 0 and len(results[0]) > 1 and 'cn' in results[0][1] and len(results[0][1]['cn']) > 0 else ''
 
 def user_list(creds, debug_level):
@@ -233,7 +231,7 @@ def pam_conv(auth, query_list):
 
 def ldap_posix_user(user, container):
     l = ldap_open(get_default_realm(), creds)
-    results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % args.object, ['sAMAccountName', 'uidNumber', 'gidNumber', 'gecos', 'homeDirectory', 'loginShell'])
+    results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % args.object, ['sAMAccountName', 'uidNumber', 'gidNumber', 'gecos', 'homeDirectory', 'loginShell'])
     if len(results) == 1:
         result = results[0][1]
         data = '%s:x' % result['sAMAccountName'][-1]
@@ -405,11 +403,12 @@ def __format_username(username, realm):
 
 ldap_open_connections = {}
 def ldap_open(realm, creds):
-    global ldap_open_connections
+    global ldap_open_connections, debug_level
     key = '%s:%s' % (realm, creds.get_username())
     if key not in ldap_open_connections.keys():
         lp = LoadParm()
         lp.load_default()
+        lp.set('log level', debug_level)
         l = SamDB(url="ldap://%s" % realm,
                   session_info=system_session(),
                   credentials=creds, lp=lp)
@@ -423,7 +422,7 @@ def user_container():
     if not uc:
         creds = get_creds(args)
         l = ldap_open(get_default_realm(), creds)
-        results = l.search_s('<WKGUID=%s,%s>' % (wkguiduc, realm_to_dn(get_default_realm())), ldap.SCOPE_SUBTREE, '(objectClass=container)', ['distinguishedName'])
+        results = l.search('<WKGUID=%s,%s>' % (wkguiduc, realm_to_dn(get_default_realm())), ldb.SCOPE_SUBTREE, '(objectClass=container)', ['distinguishedName'])
         uc = results[0][1]['distinguishedName'][-1]
     return uc
 
@@ -450,7 +449,7 @@ def attrs(args):
             container = user_container()
         if debug_level != '0':
             print('ldapsearch', '-LLL', '-x', '-h', get_default_realm(), '-D', '%s@%s' % (admin, get_default_realm()), '-W', '-b', container, '"(cn=%s)"' % args.object, ' '.join(args.attributes))
-        results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % args.object, args.attributes)
+        results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % args.object, args.attributes)
         for result in results:
             print_ldap_object(result[1], args.b)
             print()
@@ -462,20 +461,15 @@ def getdn(cn, container=None):
     l = ldap_open(get_default_realm(), creds)
     if not container:
         container = user_container()
-    results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % cn, ['distinguishedName'])
+    results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % cn, ['distinguishedName'])
     return results[0][1]['distinguishedName'][-1]
 
 def setattrs(args):
-    global debug_level
     creds = get_creds(args)
     l = ldap_open(get_default_realm(), creds)
     dn = getdn(args.object)
-    ldif_old = {args.attribute: ['']}
-    ldif = {args.attribute: [args.value]}
-    try:
-        l.modify_s(dn, modlist(ldif_old, ldif))
-    except ldap.NO_SUCH_ATTRIBUTE:
-        l.modify_s(dn, modlist({}, ldif))
+    ldif = 'dn: %s\n%s: %s' % (dn, args.attribute, args.value)
+    l.modify_ldif(ldif)
 
 def timesync(args):
     if args.s:
@@ -962,7 +956,7 @@ def join(args):
         sleep(3) # Creating the objectGUID dies if we don't sleep a bit
         objectGUID = None
         l = ldap_open(args.domain, creds)
-        results = l.search_s("CN=Sites,CN=Configuration,%s" % realm_to_dn(args.domain), ldap.SCOPE_SUBTREE, "(invocationId=*)", ["objectguid"])
+        results = l.search("CN=Sites,CN=Configuration,%s" % realm_to_dn(args.domain), ldb.SCOPE_SUBTREE, "(invocationId=*)", ["objectguid"])
         for result in results:
             if 'CN=NTDS Settings,CN=%s,' % hostname[1] in result[0]:
                 objectGUID = str(uuid.UUID(bytes=result[1]['objectGUID'][-1]))
