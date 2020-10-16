@@ -29,6 +29,7 @@ from enum import Enum
 import tdb, ldb
 from io import StringIO
 from samba.auth import system_session
+from tempfile import NamedTemporaryFile
 
 nsswitch = '/etc/nsswitch.conf'
 krb5_conf = '/etc/krb5.conf'
@@ -456,7 +457,15 @@ def config_smb_conf(creds, domain, autogen=False, server=False):
         conf.set('winbind nss info', 'template')
         conf.set('template shell', '/bin/bash')
         conf.set('template homedir', '/home/%D/%U')
-    conf.dump(file_name=default_path())
+    with NamedTemporaryFile(delete=False,
+                            dir=os.path.dirname(conf.configfile)) as f:
+        conf.dump(False, f.name)
+        if os.path.exists(conf.configfile):
+            mode = os.stat(conf.configfile).st_mode
+            os.chmod(f.name, mode)
+        else:
+            os.chmod(f.name, 0o644)
+        os.rename(f.name, conf.configfile)
 
 def config_winbind_conf():
     global winbind_conf
