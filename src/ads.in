@@ -50,6 +50,7 @@ class Output(Enum):
 
 class SambaToolFactory(object):
     def __init__(self, scmd, args=None, creds=None, stdout=Output.STDOUT, stderr=Output.STDERR):
+        global debug_level
         self.args = args
 
         parser = OptionParser()
@@ -61,14 +62,14 @@ class SambaToolFactory(object):
             self.credopts.creds = get_creds(self.args)
             self.credopts.ask_for_password = False
         self.credopts.machine_pass = False
-        self.sambaopts.get_loadparm().set('log level', args.d)
+        self.sambaopts.get_loadparm().set('log level', debug_level)
 
         self.outlog = StringIO()
         self.errlog = StringIO()
         self.sobj = scmd(errf=sys.stderr if stderr == Output.STDERR else self.errlog)
         self.sobj.logger = get_samba_logger(name='ads',
                     stream=sys.stdout if stdout == Output.STDOUT else self.outlog,
-                    verbose=(int(args.d) > 0 if args and args.d is not None else False),
+                    verbose=(int(debug_level) > 0),
                     quiet=False, fmt='%(message)s')
 
     def set_realm(self, realm):
