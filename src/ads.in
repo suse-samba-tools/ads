@@ -143,16 +143,13 @@ def get_samba_version():
         samba_version = re.findall('\d+\.\d+\.\d', samba.version)[0]
     return samba_version
 
-def get_default_realm_int():
-    lp = LoadParm()
-    lp.load_default()
-    return lp.get('realm')
-
 default_realm = None
 def get_default_realm():
     global default_realm
     if not default_realm:
-        default_realm = get_default_realm_int()
+        lp = LoadParm()
+        lp.load_default()
+        default_realm = lp.get('realm')
     return default_realm
 
 def get_netbios_name(creds, realm):
@@ -207,17 +204,6 @@ def get_creds(args):
     else:
         creds.set_password(getpass("%s's Password: " % creds.get_username()))
     return creds
-
-def pam_conv(auth, query_list):
-    resp = []
-    for (query, type) in query_list:
-        # Never echo
-        if type == PAM.PAM_PROMPT_ECHO_ON or PAM.PAM_PROMPT_ECHO_OFF:
-            resp.append((getpass(query), 0))
-        else:
-            print(query)
-            resp.append(('', 0))
-    return resp
 
 def ldap_posix_user(user, container):
     l = ldap_open(get_default_realm(), creds)
@@ -368,26 +354,6 @@ def convert_objsid_to_sidstr(binary):
 
 def realm_to_dn(realm):
     return ','.join(['dc=%s' % part for part in realm.split('.')])
-
-def __validate_dom(dom):
-    global cldap_ret
-    net = Net(Credentials())
-    cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
-    return cldap_ret.dns_domain if cldap_ret else None
-
-def parse_username(username, domain=''):
-    dom, user = (domain, username)
-    if '\\' in username:
-        dom, user = username.split('\\')
-    elif '@' in username:
-        user, dom = username.split('@')
-    return dom, user
-
-def __format_username(username, realm):
-    dom, user = parse_username(username, realm)
-    cldap_dom = __validate_dom(dom)
-    dom = cldap_dom if dom else dom
-    return '%s@%s' % (user, dom.upper())
 
 ldap_open_connections = {}
 def ldap_open(realm, creds):
