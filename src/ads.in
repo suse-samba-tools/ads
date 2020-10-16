@@ -833,20 +833,6 @@ def start_samba():
 
     return ret
 
-def options(args):
-    parser = OptionParser()
-    sambaopts = SambaOptions(parser)
-    credopts = CredentialsOptions(parser)
-    if args.u:
-        credopts.creds.parse_string(args.u)
-    if args.w:
-        credopts.creds.set_password(args.w)
-        credopts.ask_for_password = False
-    else:
-        credopts.ask_for_password = True
-    credopts.machine_pass = False
-    return sambaopts, credopts
-
 def join(args):
     if getuser() != 'root':
         sys.stderr.write('ads join must be run as root\n')
