@@ -27,11 +27,12 @@ import psutil, os, signal
 import socket
 from enum import Enum
 import tdb, ldb
+from io import StringIO
 from samba.auth import system_session
 
-nsswitch = '@NSSWITCHCONF@'
-krb5_conf = '@KRB5CONF@'
-winbind_conf = '@WINBINDCONF@'
+nsswitch = '/etc/nsswitch.conf'
+krb5_conf = '/etc/krb5.conf'
+winbind_conf = '/etc/security/pam_winbind.conf'
 net = '@BINDIR@/net'
 debug_level = '0'
 
@@ -74,7 +75,7 @@ class SambaToolFactory(object):
                           *args, **kwargs)
             return (self.outlog.getvalue(), self.errlog.getvalue())
         except Exception as e:
-            sys.stderr.write('%s exception:\n%s\n' % type(e).__name__, str(e))
+            sys.stderr.write('%s exception:\n%s\n' % (type(e).__name__, str(e)))
             return -1
 
 def clean_samba_db():
@@ -113,11 +114,19 @@ def get_netbios_name(creds, realm):
 
 def user_list(creds):
     ulist = SambaToolFactory(cmd_user_list, creds=creds, stdout=Output.PIPE)
-    return ulist.run()[0].strip().split('\n')
+    ret = ulist.run()
+    if ret != -1:
+        return ret[0].strip().split('\n')
+    else:
+        return []
 
 def group_list(creds):
     glist = SambaToolFactory(cmd_group_list, creds=creds, stdout=Output.PIPE)
-    return glist.run()[0].strip().split('\n')
+    ret = glist.run()
+    if ret != -1:
+        return ret[0].strip().split('\n')
+    else:
+        return []
 
 def getpwnam(user):
     try:
