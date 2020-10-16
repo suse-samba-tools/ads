@@ -1272,7 +1272,7 @@ def argparser():
     flush_parser.set_defaults(help_func=flush_parser.print_help)
 
     daemon_parser = subparsers.add_parser('daemon', help='Start, stop or restart the samba or winbind service')
-    daemon_parser.add_argument('action', choices=['start', 'stop', 'restart', 'enable', 'disable'])
+    daemon_parser.add_argument('action', choices=['start', 'stop', 'restart', 'enable', 'disable', 'status'])
     daemon_parser.add_argument('service', choices=['samba', 'smbd', 'nmbd', 'winbind'])
     daemon_parser.set_defaults(func=daemon)
     daemon_parser.set_defaults(help_func=daemon_parser.print_help)
