@@ -28,6 +28,7 @@ from samba.logger import get_samba_logger
 import psutil, os, signal
 import socket
 from enum import Enum
+import tdb
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
@@ -1199,19 +1200,16 @@ def ktutil(args):
     kcc(cmd)
 
 def flush(args):
-    global net
     if getuser() != 'root':
         sys.stderr.write('ads flush must be run as root\n')
         sys.exit(1)
     stop_samba()
 
-    cmd = [net, 'cache', 'flush']
-    if debug_level != '0':
-        print(' '.join(cmd))
-    Popen(cmd).wait()
-
     lp = LoadParm()
     lp.load_default()
+    gencache = tdb.open(lp.state_path('lock/gencache.tdb'), tdb_flags=tdb.NOLOCK)
+    gencache.clear()
+
     if lp.get('server role') == 'active directory domain controller':
         start_samba()
     else:
