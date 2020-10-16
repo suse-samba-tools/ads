@@ -30,10 +30,6 @@ import tdb, ldb
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
-pam_auth_conf = '@PAM_D@/common-auth'
-pam_password_conf = '@PAM_D@/common-password'
-pam_session_conf = '@PAM_D@/common-session'
-pam_module = '@LIBDIR@/security/pam_winbind.so'
 winbind_conf = '@WINBINDCONF@'
 net = '@BINDIR@/net'
 debug_level = '0'
@@ -565,94 +561,21 @@ def unconfigure_nss(args):
     except IOError:
         sys.stderr.write('Unconfigure nsswitch failed, filename \'%s\' not found\n' % nsswitch)
 
-def configure_pam_auth(pam_conf):
-    global pam_module
-    conf = ''
-    for line in open(pam_conf):
-        if 'pam_unix.so' in line and line.split()[0] == 'auth':
-            conf += 'auth\tsufficient\tpam_unix.so try_first_pass\n'
-            conf += 'auth\trequired\t%s use_first_pass\n' % pam_module
-        elif not pam_module.split('/')[-1] in line:
-            conf += line
-    of = open(pam_conf, 'w')
-    of.write(conf)
-
-def configure_pam_password(pam_conf):
-    global pam_module
-    conf = ''
-    first_line = True
-    for line in open(pam_conf):
-        if line.strip()[0] != '#' and first_line:
-            conf += 'password\tsufficient\t%s\n' % pam_module
-            first_line = False
-        elif not pam_module.split('/')[-1] in line:
-            conf += line
-    of = open(pam_conf, 'w')
-    of.write(conf)
-
-def configure_pam_session(pam_conf):
-    conf = ''
-    for line in open(pam_conf):
-        if 'session' in line and 'pam_unix.so' in line:
-            conf += 'session\toptional\tpam_mkhomedir.so\n'
-        elif not 'pam_mkhomedir.so' in line:
-            conf += line
-    of = open(pam_conf, 'w')
-    of.write(conf)
-
 def configure_pam(args):
-    global pam_auth_conf, pam_password_conf, pam_module, pam_session_conf
-    if not os.path.exists(pam_module):
-        if os.path.exists('/lib64/security/pam_winbind.so'):
-            if not os.path.exists('@LIBDIR@/security'):
-                os.mkdir('@LIBDIR@/security')
-            os.symlink('/lib64/security/pam_winbind.so', pam_module)
-            configure_pam_auth(pam_auth_conf)
-            configure_pam_password(pam_password_conf)
-            configure_pam_session(pam_session_conf)
-            follow_symlinks([pam_module])
-        else:
-            sys.stderr.write('Cannot find @LIBDIR@/security/pam_winbind.so, check that you\'ve installed the library\n')
-    else:
-        configure_pam_auth(pam_auth_conf)
-        configure_pam_password(pam_password_conf)
-        configure_pam_session(pam_session_conf)
-        follow_symlinks([pam_module])
-
-def unconfigure_pam_password():
-    global pam_module, pam_password_conf
-    conf = ''
-    for line in open(pam_password_conf):
-        if not pam_module.split('/')[-1] in line:
-            conf += line
-    of = open(pam_password_conf, 'w')
-    of.write(conf)
-
-def unconfigure_pam_auth():
-    global pam_module, pam_auth_conf
-    conf = ''
-    first_line = True
-    for line in open(pam_auth_conf):
-        if 'pam_unix.so' in line and line.split()[0] == 'auth':
-            conf += 'auth\trequired\tpam_unix.so try_first_pass\n'
-        elif not pam_module.split('/')[-1] in line:
-            conf += line
-    of = open(pam_auth_conf, 'w')
-    of.write(conf)
-
-def unconfigure_pam_session():
-    global pam_session_conf
-    conf = ''
-    for line in open(pam_session_conf):
-        if not 'pam_mkhomedir.so' in line:
-            conf += line
-    of = open(pam_session_conf, 'w')
-    of.write(conf)
+    if getuser() != 'root':
+        sys.stderr.write('ads configure must be run as root\n')
+        sys.exit(1)
+    pam_config = which('pam-config')
+    if pam_config:
+        return Popen([pam_config, '--add', '--winbind']).wait()
 
 def unconfigure_pam(args):
-    unconfigure_pam_auth()
-    unconfigure_pam_password()
-    unconfigure_pam_session()
+    if getuser() != 'root':
+        sys.stderr.write('ads configure must be run as root\n')
+        sys.exit(1)
+    pam_config = which('pam-config')
+    if pam_config:
+        return Popen([pam_config, '--delete', '--winbind']).wait()
 
 def configure(args):
     configure_pam(args)
@@ -1181,8 +1104,6 @@ def argparser():
     description = "Active Directory Swiss army knife for samba.\nFor join, unjoin, provisioning, demotion, user/group and password administration,\nldap attribute modification, posix enablement, kdc timesync, pam and nss configuration,\ndaemon start/stop, cache flush, etc.\nThe ads command attempts to maintain compatibility with the proprietary vastool command,\nwhile also adding additional features relevant to samba (such as kdc provisioning)."
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-v', '--version', action='version', version='@VERSION@', help='ads version')
-    parser.add_argument('--pam_auth_conf', help='Specify the location of the pam auth conf file')
-    parser.add_argument('--pam_password_conf', help='Specify the location of the pam password file')
     parser.add_argument('-u', help='Authenticating user')
     parser.add_argument('-w', help='Authenticating password')
     parser.add_argument('-d', help='debug level')
@@ -1360,11 +1281,6 @@ def argparser():
 if __name__ == "__main__":
     parser = argparser()
     args, unknownargs = parser.parse_known_args()
-
-    if args.pam_auth_conf:
-        pam_auth_conf = args.pam_auth_conf
-    if args.pam_password_conf:
-        pam_password_conf = args.pam_password_conf
 
     if args.d:
         debug_level = args.d
