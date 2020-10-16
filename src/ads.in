@@ -4,7 +4,7 @@ from time import sleep
 from configparser import ConfigParser
 import netifaces
 from getpass import getpass, getuser
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, DEVNULL
 from base64 import b64decode, b64encode
 import pwd, grp
 import samba
@@ -39,8 +39,6 @@ winbind_conf = '@WINBINDCONF@'
 net = '@BINDIR@/net'
 samba_tool = '@BINDIR@/samba-tool'
 samba = '@SBINDIR@/samba'
-service = '@SBINDIR@/service'
-systemctl = '@BINDIR@/systemctl'
 debug_level = '0'
 
 class Output(Enum):
@@ -128,13 +126,6 @@ class SMBConfigParser(ConfigParser):
             for name, val in options.items():
                 if isinstance(val, list):
                     options[name] = '\n'.join(val)
-
-def stop_samba(services=None):
-    if not services:
-        services = ['samba', 'smbd', 'nmbd', 'winbindd']
-    procs = [p for p in psutil.process_iter() if p.name() in services]
-    for p in procs:
-        os.kill(p.pid, signal.SIGKILL)
 
 def clean_samba_db():
     lp = LoadParm()
@@ -481,7 +472,7 @@ def config_ntp(servers):
         sys.exit(1)
 
     # stop the ntp service
-    Popen(['service', 'ntpd', 'stop']).wait()
+    service('ntpd', 'stop')
 
     config = ''
     for line in open(ntp_conf):
@@ -496,7 +487,7 @@ def config_ntp(servers):
     Popen(['/usr/sbin/ntpdate', servers[0]]).wait()
 
     # restart ntp
-    Popen(['service', 'ntpd', 'start']).wait()
+    service('ntpd', 'start')
 
 def config_smb_conf(creds, domain, autogen=False, server=False):
     smb_conf = default_path()
@@ -783,24 +774,14 @@ def config_krb5_conf(domain, server):
 def list_servers(domain):
     return [str(resolver.query(reversename.from_address(r.address),"PTR")[0])[:-1] for r in resolver.query(domain, 'A')]
 
-def start_enable_service(name, binpath):
-    global service, systemctl
-    if os.path.exists(systemctl):
-        Popen([systemctl, 'enable', name], stdout=PIPE, stderr=PIPE).wait()
-        Popen([systemctl, 'daemon-reload'], stdout=PIPE, stderr=PIPE).wait()
-        if Popen([systemctl, 'restart', name], stdout=PIPE, stderr=PIPE).wait() == 0:
-            return
-    if os.path.exists(service):
-        if Popen([service, name, 'restart'], stdout=PIPE, stderr=PIPE).wait() == 0:
-            return
+def service(name, command):
+    service = which('service')
+    systemctl = which('systemctl')
+    if systemctl:
+        return Popen([systemctl, command, name], stdout=DEVNULL, stderr=DEVNULL).wait()
+    elif service and command not in ['enable', 'disable']:
+        return Popen([service, name, command], stdout=DEVNULL, stderr=DEVNULL).wait()
     return -1
-
-def stop_disable_service(name):
-    if which('systemctl'):
-        Popen(['systemctl', 'stop', name], stdout=PIPE, stderr=PIPE).wait()
-        if Popen(['systemctl', 'disable', name], stdout=PIPE, stderr=PIPE).wait() == 0:
-            return
-    stop_samba(name)
 
 def stash_config():
     global krb5_conf
@@ -818,21 +799,6 @@ def stash_config():
         print('Stashing krb5.conf to %s...' % new_krb5_conf)
         os.rename(krb5_conf, new_krb5_conf)
 
-def start_samba():
-    global samba
-    start_enable_service('samba', samba)
-
-    # Make sure winbindd started also
-    ret = Popen(['ps ax | egrep "winbindd" | grep -v grep'], shell=True, stdout=PIPE).wait()
-    if ret != 0:
-        # If winbindd failed to start, try fixing it
-        stop_samba()
-
-        # Try again
-        ret = start_enable_service('samba', samba)
-
-    return ret
-
 def join(args):
     if getuser() != 'root':
         sys.stderr.write('ads join must be run as root\n')
@@ -842,8 +808,9 @@ def join(args):
     # Set the default realm, else kinit will fail
     default_realm = args.domain
 
-    stop_samba()
-    stop_disable_service('nscd')
+    for srv in ['samba', 'smbd', 'nmbd', 'winbindd', 'nscd']:
+        service(srv, 'stop')
+    service('nscd', 'disable')
 
     server = None
     if not args.servers:
@@ -885,7 +852,14 @@ def join(args):
 
         # start winbindd
         sys.stdout.write('Starting winbindd... ')
-        ret = start_enable_service('winbindd', winbindd)
+        ret = service('winbindd', 'start')
+        if ret != 0:
+            sys.stdout.write('failed\n')
+        else:
+            sys.stdout.write('ok\n')
+
+        sys.stdout.write('Enabling winbindd service... ')
+        ret = service('winbindd', 'enable')
         if ret != 0:
             sys.stdout.write('failed\n')
         else:
@@ -910,7 +884,14 @@ def join(args):
 
         # start samba
         sys.stdout.write('Starting samba... ')
-        ret = start_samba()
+        ret = service('samba', 'start')
+        if ret != 0:
+            sys.stdout.write('failed\n')
+        else:
+            sys.stdout.write('ok\n')
+
+        sys.stdout.write('Enabling samba service... ')
+        ret = service('samba', 'enable')
         if ret != 0:
             sys.stdout.write('failed\n')
         else:
@@ -923,7 +904,7 @@ def join(args):
             cmd = ['host', '-t', 'A', hostname[0]]
             if debug_level != '0':
                 print(' '.join(cmd))
-            ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
+            ret = Popen(cmd, stdout=DEVNULL, stderr=DEVNULL).wait()
             if ret != 0:
                 sys.stdout.write('Creating the DC DNS Record... ')
                 dns_add.run(server, args.domain, hostname[1], 'A', ip)
@@ -960,8 +941,9 @@ def provision(args):
         sys.stderr.write('ads provision must be run as root\n')
         sys.exit(1)
 
-    stop_samba()
-    stop_disable_service('nscd')
+    for srv in ['samba', 'smbd', 'nmbd', 'winbindd', 'nscd']:
+        service(srv, 'stop')
+    service('nscd', 'disable')
 
     # Update hostname
     print('Updating hostname...')
@@ -1010,7 +992,14 @@ def provision(args):
 
     # start samba
     sys.stdout.write('Starting samba... ')
-    ret = start_samba()
+    ret = service('samba', 'start')
+    if ret != 0:
+        sys.stdout.write('failed\n')
+    else:
+        sys.stdout.write('ok\n')
+
+    sys.stdout.write('Enabling samba service... ')
+    ret = service('samba', 'enable')
     if ret != 0:
         sys.stdout.write('failed\n')
     else:
@@ -1041,8 +1030,9 @@ def demote(args):
     Popen(['umount', lp.get('path', 'sysvol')]).wait()
 
     print('Disabling the samba service...')
-    stop_disable_service('samba')
-    stop_samba()
+    for srv in ['samba', 'smbd', 'nmbd', 'winbindd']:
+        service(srv, 'stop')
+        service(srv, 'disable')
 
     print('Unconfiguring pam...')
     unconfigure_pam()
@@ -1082,9 +1072,9 @@ def unjoin(args):
 
         remove_hosts_config()
 
-        stop_disable_service('winbindd')
-
-        stop_samba()
+        for srv in ['samba', 'smbd', 'nmbd', 'winbindd']:
+            service(srv, 'stop')
+            service(srv, 'disable')
 
         print('Unconfiguring pam...')
         unconfigure_pam()
@@ -1126,7 +1116,7 @@ def kcc_cmd(name):
     path = which(name)
     if not path:
         try:
-            out, _ = Popen(['rpm', '-ql', 'krb5-client'], stderr=open(os.devnull, 'w'), stdout=PIPE).communicate()
+            out, _ = Popen(['rpm', '-ql', 'krb5-client'], stderr=DEVNULL, stdout=PIPE).communicate()
             files = out.decode().split()
             for f in files:
                 if os.path.split(f)[-1] == name:
@@ -1171,7 +1161,8 @@ def flush(args):
     if getuser() != 'root':
         sys.stderr.write('ads flush must be run as root\n')
         sys.exit(1)
-    stop_samba()
+    for srv in ['samba', 'smbd', 'nmbd', 'winbindd']:
+        service(srv, 'stop')
 
     lp = LoadParm()
     lp.load_default()
@@ -1179,26 +1170,15 @@ def flush(args):
     gencache.clear()
 
     if lp.get('server role') == 'active directory domain controller':
-        start_samba()
+        service('samba', 'start')
     else:
-        start_enable_service('winbindd', winbindd)
+        service('winbindd', 'start')
 
 def daemon(args):
     if getuser() != 'root':
         sys.stderr.write('ads daemon must be run as root\n')
         sys.exit(1)
-    binary = None
-    if args.service == 'winbindd':
-        binary = winbindd
-    elif args.service == 'samba':
-        binary = samba
-    if args.action == 'start':
-        return start_enable_service(args.service, binary)
-    elif args.action == 'stop':
-        stop_samba(args.service)
-    elif args.action == 'restart':
-        stop_samba(args.service)
-        return start_enable_service(args.service, binary)
+    return service(args.service, args.action)
 
 def argparse_add_options(parser, options, ignore=[]):
     '''Add samba options to an argparse parser
@@ -1407,8 +1387,8 @@ def argparser():
     flush_parser.set_defaults(help_func=flush_parser.print_help)
 
     daemon_parser = subparsers.add_parser('daemon', help='Start, stop or restart the samba or winbind service')
-    daemon_parser.add_argument('action', choices=['start', 'stop', 'restart'])
-    daemon_parser.add_argument('service', choices=['winbindd', 'samba'])
+    daemon_parser.add_argument('action', choices=['start', 'stop', 'restart', 'enable', 'disable'])
+    daemon_parser.add_argument('service', choices=['samba', 'smbd', 'nmbd', 'winbindd'])
     daemon_parser.set_defaults(func=daemon)
     daemon_parser.set_defaults(help_func=daemon_parser.print_help)
 
