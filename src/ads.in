@@ -683,7 +683,6 @@ def join(args):
     print('Updating hostname...')
     hostname = update_hostname(args.n, args.domain)
 
-    join = SambaToolFactory(cmd_domain_join, args, creds)
     if not hasattr(args, 'domain_controller') or not args.domain_controller:
         # configure smb.conf
         print('Configuring smb.conf...')
@@ -695,8 +694,11 @@ def join(args):
 
         # net ads join the domain
         print('Joining the domain...')
-        ret = join.run(domain=args.domain, role='MEMBER')
-        if ret == -1:
+        cmd = [net, '--configfile=%s' % default_path(), 'ads', 'join', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-d', debug_level, '-S', server]
+        if debug_level != '0':
+            print(' '.join(cmd))
+        ret = Popen(cmd).wait()
+        if ret != 0:
             return ret
 
         # start winbind
@@ -719,6 +721,7 @@ def join(args):
 
         # samba-tool domain join
         print('Joining the domain as a Domain Controller...')
+        join = SambaToolFactory(cmd_domain_join, args, creds)
         ret = join.run(domain=args.domain, role='DC')
         if ret == -1:
             return ret
