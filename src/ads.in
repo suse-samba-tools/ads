@@ -418,6 +418,7 @@ def config_ntp(servers):
 def config_smb_conf(creds, domain, autogen=False, server=False):
     conf = LoadParm()
     conf.load_default()
+    smb_conf = conf.configfile if conf.configfile else default_path()
     if not server:
         netbios = get_netbios_name(creds, domain)
         conf.set('security', 'ads')
@@ -458,14 +459,14 @@ def config_smb_conf(creds, domain, autogen=False, server=False):
         conf.set('template shell', '/bin/bash')
         conf.set('template homedir', '/home/%D/%U')
     with NamedTemporaryFile(delete=False,
-                            dir=os.path.dirname(conf.configfile)) as f:
+                            dir=os.path.dirname(smb_conf)) as f:
         conf.dump(False, f.name)
-        if os.path.exists(conf.configfile):
-            mode = os.stat(conf.configfile).st_mode
+        if os.path.exists(smb_conf):
+            mode = os.stat(smb_conf).st_mode
             os.chmod(f.name, mode)
         else:
             os.chmod(f.name, 0o644)
-        os.rename(f.name, conf.configfile)
+        os.rename(f.name, smb_conf)
 
 def config_winbind_conf():
     global winbind_conf
