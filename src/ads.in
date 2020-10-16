@@ -778,11 +778,11 @@ def join(args):
 
     # configure nss
     print('Configuring nsswitch.conf...')
-    configure_nss()
+    configure_nss(args)
 
     # configure pam
     print('Configuring pam...')
-    configure_pam()
+    configure_pam(args)
 
 def provision(args):
     if getuser() != 'root':
@@ -855,11 +855,11 @@ def provision(args):
 
     # configure nss
     print('Configuring nsswitch.conf...')
-    configure_nss()
+    configure_nss(args)
 
     # configure pam
     print('Configuring pam...')
-    configure_pam()
+    configure_pam(args)
 
 def demote(args):
     global debug_level, krb5_conf
@@ -883,10 +883,10 @@ def demote(args):
         service(srv, 'disable')
 
     print('Unconfiguring pam...')
-    unconfigure_pam()
+    unconfigure_pam(args)
 
     print('Unconfiguring nss...')
-    unconfigure_nss()
+    unconfigure_nss(args)
 
     # Cleanup old samba database files
     print('Deleting samba database files...')
@@ -925,10 +925,10 @@ def unjoin(args):
             service(srv, 'disable')
 
         print('Unconfiguring pam...')
-        unconfigure_pam()
+        unconfigure_pam(args)
 
         print('Unconfiguring nss...')
-        unconfigure_nss()
+        unconfigure_nss(args)
 
         # Cleanup old samba database files
         clean_samba_db()
