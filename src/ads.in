@@ -8,7 +8,7 @@ from subprocess import Popen, PIPE, DEVNULL
 from base64 import b64decode, b64encode
 import pwd, grp
 import samba
-from samba.samdb import SamDB
+from samba import Ldb
 from samba.param import LoadParm, default_path
 from dns import resolver, reversename
 from samba.net import Net
@@ -27,6 +27,7 @@ import psutil, os, signal
 import socket
 from enum import Enum
 import tdb, ldb
+from samba.auth import system_session
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
@@ -315,9 +316,9 @@ def ldap_open(realm, creds):
         lp = LoadParm()
         lp.load_default()
         lp.set('log level', debug_level)
-        l = SamDB(url="ldap://%s" % realm,
-                  session_info=system_session(),
-                  credentials=creds, lp=lp)
+        l = Ldb(url="ldap://%s" % realm,
+                session_info=system_session(),
+                credentials=creds, lp=lp)
         ldap_open_connections[key] = l
     return ldap_open_connections[key]
 
