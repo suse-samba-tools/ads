@@ -16,7 +16,7 @@ from samba.credentials import Credentials
 from samba.dcerpc import nbt
 from shutil import which
 from samba import NTSTATUSError
-from samba.netcmd.domain import cmd_domain_join, cmd_domain_provision
+from samba.netcmd.domain import cmd_domain_join, cmd_domain_provision, cmd_domain_demote
 from samba.netcmd.dns import cmd_add_record
 from samba.netcmd.user import cmd_user_list, cmd_user_add, cmd_user_add_unix_attrs, cmd_user_delete, cmd_user_password
 from samba.netcmd.group import cmd_group_list, cmd_group_add, cmd_group_add_members, cmd_group_add_unix_attrs, cmd_group_delete
@@ -904,10 +904,6 @@ def join(args):
         else:
             sys.stdout.write('ok\n')
     else:
-        if not os.path.exists(samba_tool):
-            sys.stderr.write('samba-ad-dc is not installed\n')
-            return 1
-
         # Cleanup old samba database files
         clean_samba_db()
 
@@ -1042,17 +1038,15 @@ def provision(args):
     configure_pam()
 
 def demote(args):
-    global debug_level, samba_tool, krb5_conf
+    global debug_level, krb5_conf
     if getuser() != 'root':
         sys.stderr.write('ads demote must be run as root\n')
         sys.exit(1)
     creds = get_creds(args)
 
     print('Demoting the ADDC...')
-    cmd = [samba_tool, 'domain', 'demote', '-d', debug_level, '-U%s%%%s' % (creds.get_username(), creds.get_password())]
-    if debug_level != '0':
-        print(' '.join(cmd[:-1]), '-U%s' % admin)
-    Popen(cmd).wait()
+    demote = SambaToolFactory(cmd_domain_demote, args)
+    demote.run()
 
     lp = LoadParm()
     lp.load_default()
