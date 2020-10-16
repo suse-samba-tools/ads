@@ -61,13 +61,14 @@ class SambaToolFactory(object):
             self.credopts.creds = get_creds(self.args)
             self.credopts.ask_for_password = False
         self.credopts.machine_pass = False
+        self.sambaopts.get_loadparm().set('log level', args.d)
 
         self.outlog = StringIO()
         self.errlog = StringIO()
         self.sobj = scmd(errf=sys.stderr if stderr == Output.STDERR else self.errlog)
         self.sobj.logger = get_samba_logger(name='ads',
                     stream=sys.stdout if stdout == Output.STDOUT else self.outlog,
-                    verbose=(args.d > 0 if args and args.d is not None else False),
+                    verbose=(int(args.d) > 0 if args and args.d is not None else False),
                     quiet=False, fmt='%(message)s')
 
     def set_realm(self, realm):
@@ -171,11 +172,11 @@ def get_netbios_name(creds, realm):
     results = l.search('CN=Partitions,CN=Configuration,%s' % realm_to_dn(realm), ldb.SCOPE_SUBTREE, '(netbiosname=*)', [])
     return results[0][1]['cn'][-1] if results and len(results) > 0 and len(results[0]) > 1 and 'cn' in results[0][1] and len(results[0][1]['cn']) > 0 else ''
 
-def user_list(creds, debug_level):
+def user_list(creds):
     ulist = SambaToolFactory(cmd_user_list, creds=creds, stdout=Output.PIPE)
     return ulist.run()[0].strip().split('\n')
 
-def group_list(creds, debug_level):
+def group_list(creds):
     glist = SambaToolFactory(cmd_group_list, creds=creds, stdout=Output.PIPE)
     return glist.run()[0].strip().split('\n')
 
@@ -192,18 +193,18 @@ def getgrnam(group):
     except KeyError:
         return group
 
-def getpwent(creds, debug_level):
+def getpwent(creds):
     ulist = []
     for d in pwd.getpwall():
         ulist.append(':'.join([str(i) for i in d]))
-    for u in user_list(creds, debug_level):
+    for u in user_list(creds):
         ulist.append(getpwnam(u))
     return ulist
 
-def getgrent(creds, debug_level):
+def getgrent(creds):
     for d in grp.getgrall():
         print(':'.join([str(i) for i in d[:-1]])+':'+','.join(d.gr_mem))
-    for g in group_list(creds, debug_level):
+    for g in group_list(creds):
         print(getgrnam(g))
 
 def get_creds(args):
@@ -242,7 +243,7 @@ def ldap_posix_user(user, container):
 
 def ldap_posix_pwent(container):
     ulist = []
-    for u in user_list(creds, debug_level):
+    for u in user_list(creds):
         ulist.append(ldap_posix_user(u, container))
     return ulist
 
@@ -271,20 +272,18 @@ def nss_getgrnam_getgrid(args):
         print(gr)
 
 def nss_getpwent(args):
-    global debug_level
     creds = get_creds(args)
     if 'direct' in args and args.direct:
         ulist = ldap_posix_pwent(user_container())
     else:
-        ulist = getpwent(creds, debug_level)
+        ulist = getpwent(creds)
     for pw in ulist:
         if pw and pw.strip():
             print(pw)
 
 def nss_getgrent(args):
-    global debug_level
     creds = get_creds(args)
-    getgrent(creds, debug_level)
+    getgrent(creds)
 
 def create_user(args):
     unix_attrs = {}
@@ -440,15 +439,12 @@ def print_ldap_object(obj, sidstr):
                 print('%s: %s' % (key, ob))
 
 def attrs(args):
-    global debug_level
     if args.object:
         creds = get_creds(args)
         l = ldap_open(get_default_realm(), creds)
         container = args.c
         if not container:
             container = user_container()
-        if debug_level != '0':
-            print('ldapsearch', '-LLL', '-x', '-h', get_default_realm(), '-D', '%s@%s' % (admin, get_default_realm()), '-W', '-b', container, '"(cn=%s)"' % args.object, ' '.join(args.attributes))
         results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % args.object, args.attributes)
         for result in results:
             print_ldap_object(result[1], args.b)
@@ -795,9 +791,6 @@ def start_enable_service(name, binpath):
             return
     if os.path.exists(service):
         if Popen([service, name, 'restart'], stdout=PIPE, stderr=PIPE).wait() == 0:
-            return
-    if os.path.exists(binpath):
-        if Popen([binpath, '-d', debug_level, '--configfile=%s' % default_path(), '-D'], stdout=PIPE, stderr=PIPE).wait() == 0:
             return
     return -1
 
