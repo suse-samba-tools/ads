@@ -30,15 +30,12 @@ import tdb, ldb
 
 nsswitch = '@NSSWITCHCONF@'
 krb5_conf = '@KRB5CONF@'
-winbindd = '@SBINDIR@/winbindd'
 pam_auth_conf = '@PAM_D@/common-auth'
 pam_password_conf = '@PAM_D@/common-password'
 pam_session_conf = '@PAM_D@/common-session'
 pam_module = '@LIBDIR@/security/pam_winbind.so'
 winbind_conf = '@WINBINDCONF@'
 net = '@BINDIR@/net'
-samba_tool = '@BINDIR@/samba-tool'
-samba = '@SBINDIR@/samba'
 debug_level = '0'
 
 class Output(Enum):
