@@ -419,10 +419,11 @@ def setattrs(args):
     l.modify_ldif(ldif)
 
 def timesync(args):
-    if args.s:
-        Popen(['service', 'ntpd', 'stop']).wait()
-        Popen(['/usr/sbin/ntpdate', args.s]).wait()
-        Popen(['service', 'ntpd', 'start']).wait()
+    ntpdate = which('ntpdate')
+    if args.s and ntpdate:
+        service('ntpd', 'stop')
+        Popen([ntpdate, args.s]).wait()
+        service('ntpd', 'start')
 
 def config_ntp(servers):
     ntp_conf = '/etc/ntp.conf'
