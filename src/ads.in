@@ -640,13 +640,6 @@ def service(name, command):
 
 def stash_config():
     global krb5_conf
-    # Stash the old smb.conf
-    if os.path.exists(default_path()):
-        smb_conf = default_path()
-        now = datetime.datetime.now()
-        new_smb_conf = '%s.%s' % (smb_conf, now.strftime('%b-%d-%Y_%I:%M%p'))
-        print('Stashing smb.conf to %s...' % new_smb_conf)
-        os.rename(smb_conf, new_smb_conf)
     # Stash any old krb5.conf
     if os.path.exists(krb5_conf):
         now = datetime.datetime.now()
