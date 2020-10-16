@@ -76,50 +76,6 @@ class SambaToolFactory(object):
             sys.stderr.write('%s exception:\n%s\n' % type(e).__name__, str(e))
             return -1
 
-class SMBConfigParser(ConfigParser):
-    def __init__(self, defaults=None, dict_type=None, allow_no_value=None):
-        ConfigParser.__init__(self, defaults, dict_type, allow_no_value, interpolation=None)
-
-    def _read(self, fp, fpname):
-        cursect = None
-        sectname = None
-        optname = None
-        e = None
-        _SECT_TMPL = r"""\[(?P<header>[^]]+)\]"""
-        _OPT_TMPL = r"""\s*(?P<option>.*?)\s*(?P<vi>=)\s*(?P<value>.*)$"""
-        for lineno, line in enumerate(fp, start=1):
-            if not line.strip() or line.strip()[0] == '#':
-                continue
-            if '#' in line:
-                line = line.split('#')[0]
-            mo = re.match(_SECT_TMPL, line)
-            if mo:
-                sectname = mo.group('header')
-                if sectname in self._sections:
-                    raise DuplicateSectionError(sectname, fpname, lineno)
-                else:
-                    cursect = self._dict()
-                    cursect['__name__'] = sectname
-                    self._sections[sectname] = cursect
-                optname = None
-            elif cursect is None:
-                raise MissingSectionHeaderError(fpname, lineno, line)
-            else:
-                mo = re.match(_OPT_TMPL, line)
-                if mo:
-                    optname, vi, optval = mo.group('option', 'vi', 'value')
-                    cursect[optname] = [optval.strip()]
-                else:
-                    e = self._handle_error(e, fpname, lineno, line)
-        if e:
-            raise e
-        all_sections = [self._defaults]
-        all_sections.extend(self._sections.values())
-        for options in all_sections:
-            for name, val in options.items():
-                if isinstance(val, list):
-                    options[name] = '\n'.join(val)
-
 def clean_samba_db():
     lp = LoadParm()
     samba_dirs = [lp.state_path('lock'),
@@ -450,58 +406,52 @@ def config_ntp(servers):
     service('ntpd', 'start')
 
 def config_smb_conf(creds, domain, autogen=False, server=False):
-    smb_conf = default_path()
-    conf = SMBConfigParser()
-    if os.path.exists(smb_conf):
-        conf.read(smb_conf)
-    if 'global' not in conf.sections():
-        conf.add_section('global')
+    conf = LoadParm()
+    conf.load_default()
     if not server:
         netbios = get_netbios_name(creds, domain)
-        conf.set('global', 'security', 'ads')
-        conf.set('global', 'workgroup', domain.split('.')[0].upper())
-        conf.set('global', 'realm', domain.upper())
-        conf.set('global', 'log file', '/var/log/samba/%m.log')
-        conf.set('global', 'log level', '1')
-        conf.set('global', 'passdb backend', 'tdbsam')
-        conf.set('global', 'map to guest', 'Bad User')
-        conf.set('global', 'logon path', '\\\\%L\\profiles\\.msprofile')
-        conf.set('global', 'logon home', '\\\\%L\\%U\\.9xprofile')
-        conf.set('global', 'logon drive', 'P:')
-        conf.set('global', 'usershare allow guests', 'yes')
-        conf.set('global', 'winbind offline logon', 'yes')
+        conf.set('security', 'ads')
+        conf.set('workgroup', domain.split('.')[0].upper())
+        conf.set('realm', domain.upper())
+        conf.set('log file', '/var/log/samba/%m.log')
+        conf.set('log level', '1')
+        conf.set('passdb backend', 'tdbsam')
+        conf.set('map to guest', 'Bad User')
+        conf.set('logon path', '\\\\%L\\profiles\\.msprofile')
+        conf.set('logon home', '\\\\%L\\%U\\.9xprofile')
+        conf.set('logon drive', 'P:')
+        conf.set('usershare allow guests', 'yes')
+        conf.set('winbind offline logon', 'yes')
         if autogen:
-            conf.set('global', 'template shell', '/bin/bash')
-            conf.set('global', 'template homedir', '/home/%D/%U')
-            conf.set('global', 'idmap config * : backend', 'tdb')
-            conf.set('global', 'idmap config * : range', '2000-3999')
-            conf.set('global', 'idmap config %s : backend' % netbios, 'rid')
-            conf.set('global', 'idmap config %s : range' % netbios, '4000-99999')
+            conf.set('template shell', '/bin/bash')
+            conf.set('template homedir', '/home/%D/%U')
+            conf.set('idmap config * : backend', 'tdb')
+            conf.set('idmap config * : range', '2000-3999')
+            conf.set('idmap config %s : backend' % netbios, 'rid')
+            conf.set('idmap config %s : range' % netbios, '4000-99999')
             if float(get_samba_version()[:3]) >= 4.6:
-                conf.set('global', 'idmap config *:unix_nss_info', 'no')
+                conf.set('idmap config *:unix_nss_info', 'no')
             else:
-                conf.set('global', 'winbind nss info', 'template')
+                conf.set('winbind nss info', 'template')
         else:
-            conf.set('global', 'idmap config *:backend', 'autorid')
-            conf.set('global', 'idmap config *:range', '2000-3999')
-            conf.set('global', 'idmap config %s:backend' % netbios, 'ad')
-            conf.set('global', 'idmap config %s:schema_mode' % netbios, 'rfc2307')
-            conf.set('global', 'idmap config %s:range' % netbios, '4000-99999')
+            conf.set('idmap config *:backend', 'autorid')
+            conf.set('idmap config *:range', '2000-3999')
+            conf.set('idmap config %s:backend' % netbios, 'ad')
+            conf.set('idmap config %s:schema_mode' % netbios, 'rfc2307')
+            conf.set('idmap config %s:range' % netbios, '4000-99999')
             if float(get_samba_version()[:3]) >= 4.6:
-                conf.set('global', 'idmap config %s:unix_nss_info' % netbios, 'yes')
+                conf.set('idmap config %s:unix_nss_info' % netbios, 'yes')
             else:
-                conf.set('global', 'winbind nss info', 'rfc2307')
+                conf.set('winbind nss info', 'rfc2307')
     else:
-        conf.set('global', 'winbind nss info', 'template')
-        conf.set('global', 'template shell', '/bin/bash')
-        conf.set('global', 'template homedir', '/home/%D/%U')
-    of = open(smb_conf, 'w')
-    conf.write(of)
-    of.close()
+        conf.set('winbind nss info', 'template')
+        conf.set('template shell', '/bin/bash')
+        conf.set('template homedir', '/home/%D/%U')
+    conf.dump(file_name=default_path())
 
 def config_winbind_conf():
     global winbind_conf
-    conf = SMBConfigParser()
+    conf = ConfigParser()
     if os.path.exists(winbind_conf):
         conf.read(winbind_conf)
     if 'global' not in conf.sections():
