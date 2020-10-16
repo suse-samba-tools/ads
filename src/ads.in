@@ -107,10 +107,9 @@ def get_default_realm():
     return default_realm
 
 def get_netbios_name(creds, realm):
-    l = ldap_open(realm, creds)
-
-    results = l.search('CN=Partitions,CN=Configuration,%s' % realm_to_dn(realm), ldb.SCOPE_SUBTREE, '(netbiosname=*)', [])
-    return results[0][1]['cn'][-1] if results and len(results) > 0 and len(results[0]) > 1 and 'cn' in results[0][1] and len(results[0][1]['cn']) > 0 else ''
+    net = Net(creds)
+    cldap_ret = net.finddc(domain=realm, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
+    return cldap_ret.domain_name
 
 def user_list(creds):
     ulist = SambaToolFactory(cmd_user_list, creds=creds, stdout=Output.PIPE)
