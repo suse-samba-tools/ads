@@ -695,7 +695,7 @@ def join(args):
     # Set the default realm, else kinit will fail
     default_realm = args.domain
 
-    for srv in ['samba', 'smbd', 'nmbd', 'winbindd', 'nscd']:
+    for srv in ['samba', 'smbd', 'nmbd', 'winbind', 'nscd']:
         service(srv, 'stop')
     service('nscd', 'disable')
 
@@ -737,16 +737,16 @@ def join(args):
         if ret == -1:
             return ret
 
-        # start winbindd
-        sys.stdout.write('Starting winbindd... ')
-        ret = service('winbindd', 'start')
+        # start winbind
+        sys.stdout.write('Starting winbind... ')
+        ret = service('winbind', 'start')
         if ret != 0:
             sys.stdout.write('failed\n')
         else:
             sys.stdout.write('ok\n')
 
-        sys.stdout.write('Enabling winbindd service... ')
-        ret = service('winbindd', 'enable')
+        sys.stdout.write('Enabling winbind service... ')
+        ret = service('winbind', 'enable')
         if ret != 0:
             sys.stdout.write('failed\n')
         else:
@@ -828,7 +828,7 @@ def provision(args):
         sys.stderr.write('ads provision must be run as root\n')
         sys.exit(1)
 
-    for srv in ['samba', 'smbd', 'nmbd', 'winbindd', 'nscd']:
+    for srv in ['samba', 'smbd', 'nmbd', 'winbind', 'nscd']:
         service(srv, 'stop')
     service('nscd', 'disable')
 
@@ -917,7 +917,7 @@ def demote(args):
     Popen(['umount', lp.get('path', 'sysvol')]).wait()
 
     print('Disabling the samba service...')
-    for srv in ['samba', 'smbd', 'nmbd', 'winbindd']:
+    for srv in ['samba', 'smbd', 'nmbd', 'winbind']:
         service(srv, 'stop')
         service(srv, 'disable')
 
@@ -959,7 +959,7 @@ def unjoin(args):
 
         remove_hosts_config()
 
-        for srv in ['samba', 'smbd', 'nmbd', 'winbindd']:
+        for srv in ['samba', 'smbd', 'nmbd', 'winbind']:
             service(srv, 'stop')
             service(srv, 'disable')
 
@@ -1048,7 +1048,7 @@ def flush(args):
     if getuser() != 'root':
         sys.stderr.write('ads flush must be run as root\n')
         sys.exit(1)
-    for srv in ['samba', 'smbd', 'nmbd', 'winbindd']:
+    for srv in ['samba', 'smbd', 'nmbd', 'winbind']:
         service(srv, 'stop')
 
     lp = LoadParm()
@@ -1059,7 +1059,7 @@ def flush(args):
     if lp.get('server role') == 'active directory domain controller':
         service('samba', 'start')
     else:
-        service('winbindd', 'start')
+        service('winbind', 'start')
 
 def daemon(args):
     if getuser() != 'root':
@@ -1273,7 +1273,7 @@ def argparser():
 
     daemon_parser = subparsers.add_parser('daemon', help='Start, stop or restart the samba or winbind service')
     daemon_parser.add_argument('action', choices=['start', 'stop', 'restart', 'enable', 'disable'])
-    daemon_parser.add_argument('service', choices=['samba', 'smbd', 'nmbd', 'winbindd'])
+    daemon_parser.add_argument('service', choices=['samba', 'smbd', 'nmbd', 'winbind'])
     daemon_parser.set_defaults(func=daemon)
     daemon_parser.set_defaults(help_func=daemon_parser.print_help)
 
