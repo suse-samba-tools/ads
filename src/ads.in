@@ -56,7 +56,9 @@ class SambaToolFactory(object):
             self.credopts.creds = get_creds(self.args)
             self.credopts.ask_for_password = False
         self.credopts.machine_pass = False
-        self.sambaopts.get_loadparm().set('log level', debug_level)
+        lp = self.sambaopts.get_loadparm()
+        lp.set('log level', debug_level)
+        self.realm = lp.get('realm')
 
         self.outlog = StringIO()
         self.errlog = StringIO()
@@ -114,7 +116,7 @@ def get_netbios_name(creds, realm):
 
 def user_list(creds):
     ulist = SambaToolFactory(cmd_user_list, creds=creds, stdout=Output.PIPE)
-    ret = ulist.run()
+    ret = ulist.run(H='ldap://%s' % ulist.realm)
     if ret != -1:
         return ret[0].strip().split('\n')
     else:
@@ -122,7 +124,7 @@ def user_list(creds):
 
 def group_list(creds):
     glist = SambaToolFactory(cmd_group_list, creds=creds, stdout=Output.PIPE)
-    ret = glist.run()
+    ret = glist.run(H='ldap://%s' % glist.realm)
     if ret != -1:
         return ret[0].strip().split('\n')
     else:
@@ -231,7 +233,7 @@ def create_user(args):
             return -1
         unix_attrs['uid'] = data[0]
         if not args.e:
-            unix_attris['uid_number'] = data[2]
+            unix_attrs['uid_number'] = data[2]
         else:
             uid_number = data[2]
         unix_attrs['gid_number'] = data[3]
@@ -240,10 +242,10 @@ def create_user(args):
         unix_attrs['login_shell'] = data[6]
     if not args.e:
         uadd = SambaToolFactory(cmd_user_add, args)
-        uadd.run(args.object, password=new_user_pass, **unix_attrs)
+        uadd.run(args.object, H='ldap://%s' % uadd.realm, **unix_attrs)
     else:
         uunix_attrs = SambaToolFactory(cmd_user_add_unix_attrs, args)
-        uadd.run(args.object, uid_number, **unix_attrs)
+        uunix_attrs.run(args.object, uid_number, H='ldap://%s' % uunix_attrs.realm, **unix_attrs)
 
 def create_group(args):
     unix_attrs = {}
@@ -255,18 +257,22 @@ def create_group(args):
         unix_attrs['gid_number'] = data[2]
     if not args.e:
         gadd = SambaToolFactory(cmd_group_add, args)
-        gadd.run(args.object, **unix_attrs)
+        if 'gid_number' in unix_attrs:
+            unix_attrs['nis_domain'] = gadd.realm
+        gadd.run(args.object, H='ldap://%s' % gadd.realm, **unix_attrs)
     elif 'gid_number' in unix_attrs:
         gunix_attrs = SambaToolFactory(cmd_group_add_unix_attrs, args)
-        gunix_attrs.run(args.object, unix_attrs['gid_number'])
+        if 'gid_number' in unix_attrs:
+            unix_attrs['nis_domain'] = gunix_attrs.realm
+        gunix_attrs.run(args.object, unix_attrs['gid_number'], H='ldap://%s' % gunix_attrs.realm)
 
 def delete_user(args):
     delu = SambaToolFactory(cmd_user_delete, args)
-    delu.run(args.object)
+    delu.run(args.object, H='ldap://%s' % delu.realm)
 
 def delete_group(args):
     delg = SambaToolFactory(cmd_group_delete, args)
-    delg.run(args.object)
+    delg.run(args.object, H='ldap://%s' % delg.realm)
 
 def user_checklogin(args):
     p = pam.pam()
