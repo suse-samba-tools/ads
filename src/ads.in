@@ -959,7 +959,7 @@ def info_domain(args):
     print(get_default_realm())
 
 def info_cldap(args):
-    creds = get_creds(args)
+    creds = Credentials()
     lp = LoadParm()
     lp.load_default()
 
