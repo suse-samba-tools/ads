@@ -960,48 +960,30 @@ def info_cldap(args):
 
 def kcc_cmd(name):
     path = which(name)
-    if not path:
-        try:
-            out, _ = Popen(['rpm', '-ql', 'krb5-client'], stderr=DEVNULL, stdout=PIPE).communicate()
-            files = out.decode().split()
-            for f in files:
-                if os.path.split(f)[-1] == name:
-                    return f
-        except OSError:
-            pass
-    else:
-        return path
-    return name
-
-def kcc(cmd):
-    if debug_level != '0':
-        print(' '.join(cmd))
-    try:
-        return Popen(cmd).wait()
-    except OSError as e:
-        if 'No such file or directory' in str(e):
-            sys.stderr.write('%s is not in your path\n' % cmd[0])
-            sys.exit(1)
+    if path is None:
+        sys.stderr.write('%s is not in your path\n' % name)
+        sys.exit(1)
+    return path
 
 def kinit(args):
     cmd = [kcc_cmd('kinit')]
     cmd.extend(args)
-    kcc(cmd)
+    Popen(cmd).wait()
 
 def klist(args):
     cmd = [kcc_cmd('klist')]
     cmd.extend(args)
-    kcc(cmd)
+    Popen(cmd).wait()
 
 def kdestroy(args):
     cmd = [kcc_cmd('kdestroy')]
     cmd.extend(args)
-    kcc(cmd)
+    Popen(cmd).wait()
 
 def ktutil(args):
     cmd = [kcc_cmd('ktutil')]
     cmd.extend(args)
-    kcc(cmd)
+    Popen(cmd).wait()
 
 def flush(args):
     if getuser() != 'root':
