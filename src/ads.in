@@ -1,165 +1,134 @@
 #!/usr/bin/python
-import sys, argparse, struct, os.path, datetime, uuid, re
-from sys import exit
+import sys, argparse, struct, os.path, datetime, uuid, re, pam
 from time import sleep
 from configparser import ConfigParser
-import netifaces, ldap
+import netifaces
 from getpass import getpass, getuser
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, DEVNULL
 from base64 import b64decode, b64encode
-from ldap.modlist import addModlist as addlist
-from ldap.modlist import modifyModlist as modlist
 import pwd, grp
-from samba.param import LoadParm
+import samba
+from samba import Ldb
+from samba.param import LoadParm, default_path
 from dns import resolver, reversename
 from samba.net import Net
 from samba.credentials import Credentials
 from samba.dcerpc import nbt
 from shutil import which
+from samba import NTSTATUSError
+from samba.netcmd.domain import cmd_domain_join, cmd_domain_provision, cmd_domain_demote
+from samba.netcmd.dns import cmd_add_record
+from samba.netcmd.user import cmd_user_list, cmd_user_add, cmd_user_add_unix_attrs, cmd_user_delete, cmd_user_password
+from samba.netcmd.group import cmd_group_list, cmd_group_add, cmd_group_add_members, cmd_group_add_unix_attrs, cmd_group_delete
+from samba.getopt import SambaOptions, CredentialsOptions
+from optparse import OptionParser
+from samba.logger import get_samba_logger
+import psutil, os, signal
+import socket
+from enum import Enum
+import tdb, ldb
+from ldb import MessageElement
+from io import StringIO
+from samba.auth import system_session
+from tempfile import NamedTemporaryFile
 
-nsswitch = '@NSSWITCHCONF@'
-krb5_conf = '@KRB5CONF@'
-winbindd = '@SBINDIR@/winbindd'
-smbd = '@SBINDIR@/smbd'
-pam_auth_conf = '@PAM_D@/common-auth'
-pam_password_conf = '@PAM_D@/common-password'
-pam_session_conf = '@PAM_D@/common-session'
-pam_module = '@LIBDIR@/security/pam_winbind.so'
-winbind_conf = '@WINBINDCONF@'
-net = '@BINDIR@/net'
-samba_tool = '@BINDIR@/samba-tool'
-samba = '@SBINDIR@/samba'
-service = '@SBINDIR@/service'
-systemctl = '@BINDIR@/systemctl'
-admin = None
-password = None
+nsswitch = '/etc/nsswitch.conf'
+krb5_conf = '/etc/krb5.conf'
+winbind_conf = '/etc/security/pam_winbind.conf'
 debug_level = '0'
 
-class SMBConfigParser(ConfigParser):
-    def __init__(self, defaults=None, dict_type=None, allow_no_value=None):
-        ConfigParser.__init__(self, defaults, dict_type, allow_no_value, interpolation=None)
+class Output(Enum):
+    STDOUT = 0
+    STDERR = 1
+    PIPE = 2
 
-    def _read(self, fp, fpname):
-        cursect = None
-        sectname = None
-        optname = None
-        e = None
-        _SECT_TMPL = r"""\[(?P<header>[^]]+)\]"""
-        _OPT_TMPL = r"""\s*(?P<option>.*?)\s*(?P<vi>=)\s*(?P<value>.*)$"""
-        for lineno, line in enumerate(fp, start=1):
-            if not line.strip() or line.strip()[0] == '#':
-                continue
-            if '#' in line:
-                line = line.split('#')[0]
-            mo = re.match(_SECT_TMPL, line)
-            if mo:
-                sectname = mo.group('header')
-                if sectname in self._sections:
-                    raise DuplicateSectionError(sectname, fpname, lineno)
-                else:
-                    cursect = self._dict()
-                    cursect['__name__'] = sectname
-                    self._sections[sectname] = cursect
-                optname = None
-            elif cursect is None:
-                raise MissingSectionHeaderError(fpname, lineno, line)
-            else:
-                mo = re.match(_OPT_TMPL, line)
-                if mo:
-                    optname, vi, optval = mo.group('option', 'vi', 'value')
-                    cursect[optname] = [optval.strip()]
-                else:
-                    e = self._handle_error(e, fpname, lineno, line)
-        if e:
-            raise e
-        all_sections = [self._defaults]
-        all_sections.extend(self._sections.values())
-        for options in all_sections:
-            for name, val in options.items():
-                if isinstance(val, list):
-                    options[name] = '\n'.join(val)
+class SambaToolFactory(object):
+    def __init__(self, scmd, args=None, creds=None, stdout=Output.STDOUT, stderr=Output.STDERR):
+        global debug_level
+        self.args = args
 
-def kdc_installed():
-    return os.path.exists(samba)
+        parser = OptionParser()
+        self.sambaopts = SambaOptions(parser)
+        self.credopts = CredentialsOptions(parser)
+        if creds:
+            self.credopts.creds = creds
+        elif self.args:
+            self.credopts.creds = get_creds(self.args)
+            self.credopts.ask_for_password = False
+        self.credopts.machine_pass = False
+        lp = self.sambaopts.get_loadparm()
+        lp.set('log level', debug_level)
+        self.realm = lp.get('realm')
 
-def stop_samba(service=None):
-    global debug_level
-    if not service:
-        service = 'samba|smbd|nmbd|winbindd'
-    lines = Popen(['ps -eo \'pid,ppid,cmd\' | egrep "%s" | grep -v grep' % service], shell=True, stdout=PIPE).communicate()[0].strip()
-    if lines:
-        procs = []
-        all_procs = []
-        for line in lines.decode('utf-8').split('\n'):
-            data = line.strip().split()
-            all_procs.append(int(data[1]))
-            if data and len(data) > 1 and data[1] == '1':
-                procs.append(data[0])
-        cmd = ['kill']
-        if len(procs) == 0:
-            cmd.extend('%d' % min(all_procs))
-        else:
-            cmd.extend(procs)
-        if debug_level != '0':
-            print(' '.join(cmd))
-        Popen(cmd).wait()
+        self.outlog = StringIO()
+        self.errlog = StringIO()
+        self.sobj = scmd(errf=sys.stderr if stderr == Output.STDERR else self.errlog,
+                         outf=sys.stdout if stdout == Output.STDOUT else self.outlog)
+        self.sobj.logger = get_samba_logger(name='ads',
+                    verbose=(int(debug_level) > 0),
+                    quiet=False, fmt='%(message)s')
+
+    def set_realm(self, realm):
+        self.sambaopts._set_realm(realm)
+
+    def run(self, *args, **kwargs):
+        try:
+            self.sobj.run(sambaopts=self.sambaopts,
+                          credopts=self.credopts,
+                          *args, **kwargs)
+            return (self.outlog.getvalue(), self.errlog.getvalue())
+        except Exception as e:
+            sys.stderr.write('%s exception:\n%s\n' % (type(e).__name__, str(e)))
+            return -1
 
 def clean_samba_db():
-    samba_dirs = [line.split(':')[-1].strip() for line in Popen(['%s -b | egrep "LOCKDIR|STATEDIR|CACHEDIR|PRIVATE_DIR"' % smbd], shell=True, stdout=PIPE).communicate()[0].decode('utf-8').strip().split('\n')]
+    lp = LoadParm()
+    samba_dirs = [lp.state_path('lock'),
+                  os.path.realpath(lp.state_path('.')),
+                  os.path.realpath(lp.cache_path('.')),
+                  os.path.realpath(lp.private_path('.'))]
     for topdir in samba_dirs:
         for root, dirs, files in os.walk(topdir):
             for fname in files:
                 if fname.endswith('.tdb') or fname.endswith('.ldb'):
                     os.remove(os.path.join(root, fname))
 
-smb_conf = None
-def get_smb_conf():
-    global smb_conf
-    if not smb_conf:
-        smb_conf = Popen(['grep', 'CONFIGFILE'], stdin=Popen([smbd, '-b'], stdout=PIPE).stdout, stdout=PIPE).communicate()[0].decode('utf-8').strip().split(':')[-1].strip()
-    return smb_conf
-
 samba_version = None
 def get_samba_version():
     global samba_version
     if not samba_version:
-        data = Popen([smbd, '-V'], stdout=PIPE).communicate()[0].strip()
-        samba_version = re.findall('\d+\.\d+\.\d', data.decode('utf-8').split()[1])[0]
+        samba_version = re.findall('\d+\.\d+\.\d', samba.version)[0]
     return samba_version
-
-def get_default_realm_int():
-    lp = LoadParm()
-    lp.load(get_smb_conf())
-    return lp.get('realm')
 
 default_realm = None
 def get_default_realm():
     global default_realm
     if not default_realm:
-        default_realm = get_default_realm_int()
+        lp = LoadParm()
+        lp.load_default()
+        default_realm = lp.get('realm')
     return default_realm
 
-def get_netbios_name(realm):
-    global admin, password
-    admin, password = get_creds(admin, password)
-    l = ldap_open(realm, admin, password)
+def get_netbios_name(creds, realm):
+    net = Net(creds)
+    cldap_ret = net.finddc(domain=realm, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
+    return cldap_ret.domain_name
 
-    results = l.search_s('CN=Partitions,CN=Configuration,%s' % realm_to_dn(realm), ldap.SCOPE_SUBTREE, '(netbiosname=*)', [])
-    return results[0][1]['cn'][-1] if results and len(results) > 0 and len(results[0]) > 1 and 'cn' in results[0][1] and len(results[0][1]['cn']) > 0 else ''
+def user_list(creds):
+    ulist = SambaToolFactory(cmd_user_list, creds=creds, stdout=Output.PIPE)
+    ret = ulist.run(H='ldap://%s' % ulist.realm)
+    if ret != -1:
+        return ret[0].strip().split('\n')
+    else:
+        return []
 
-def user_list(admin, password, debug_level):
-    global net
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
-    if debug_level != '0':
-        print(' '.join(cmd))
-    return Popen(cmd, stdout=PIPE).communicate()[0].decode().strip().split('\n')
-
-def group_list(admin, password, debug_level):
-    global net
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', '-U%s%%%s' % (admin, password), '-S', get_default_realm()]
-    if debug_level != '0':
-        print(' '.join(cmd))
-    return Popen(cmd, stdout=PIPE).communicate()[0].decode().strip().split('\n')
+def group_list(creds):
+    glist = SambaToolFactory(cmd_group_list, creds=creds, stdout=Output.PIPE)
+    ret = glist.run(H='ldap://%s' % glist.realm)
+    if ret != -1:
+        return ret[0].strip().split('\n')
+    else:
+        return []
 
 def getpwnam(user):
     try:
@@ -174,63 +143,52 @@ def getgrnam(group):
     except KeyError:
         return group
 
-def getpwent(admin, password, debug_level):
+def getpwent(creds):
     ulist = []
     for d in pwd.getpwall():
         ulist.append(':'.join([str(i) for i in d]))
-    for u in user_list(admin, password, debug_level):
+    for u in user_list(creds):
         ulist.append(getpwnam(u))
     return ulist
 
-def getgrent(admin, password, debug_level):
+def getgrent(creds):
     for d in grp.getgrall():
         print(':'.join([str(i) for i in d[:-1]])+':'+','.join(d.gr_mem))
-    for g in group_list(admin, password, debug_level):
+    for g in group_list(creds):
         print(getgrnam(g))
 
-def get_creds(admin, password):
-    if not admin:
-        admin = input("Username: ")
-    if not password:
-        password = getpass("%s's Password: " % admin)
-    return (admin, password)
+def get_creds(args):
+    creds = Credentials()
+    if args.u:
+        creds.parse_string(args.u)
+    else:
+        creds.parse_string(getuser())
+    if args.w:
+        creds.set_password(args.w)
+    else:
+        creds.set_password(getpass("%s's Password: " % creds.get_username()))
+    return creds
 
-def pam_conv(auth, query_list):
-    resp = []
-    for (query, type) in query_list:
-        # Never echo
-        if type == PAM.PAM_PROMPT_ECHO_ON or PAM.PAM_PROMPT_ECHO_OFF:
-            resp.append((getpass(query), 0))
-        else:
-            print(query)
-            resp.append(('', 0))
-    return resp
-
-def ldap_posix_user(user, container):
-    global admin, password
-    l = ldap_open(get_default_realm(), admin, password)
-    results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % args.object, ['sAMAccountName', 'uidNumber', 'gidNumber', 'gecos', 'homeDirectory', 'loginShell'])
+def ldap_posix_user(creds, user, container):
+    l = ldap_open(get_default_realm(), creds)
+    results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % user, ['sAMAccountName', 'uidNumber', 'gidNumber', 'gecos', 'homeDirectory', 'loginShell'])
     if len(results) == 1:
-        result = results[0][1]
+        result = results[0]
         data = '%s:x' % result['sAMAccountName'][-1]
         for key in ['uidNumber', 'gidNumber', 'gecos', 'homeDirectory', 'loginShell']:
             arg = result[key][-1] if key in result.keys() else ''
             data += ':%s' % arg
         return data
 
-def ldap_posix_pwent(container):
-    global admin, password
+def ldap_posix_pwent(creds, container):
     ulist = []
-    for u in user_list(admin, password, debug_level):
-        ulist.append(ldap_posix_user(u, container))
+    for u in user_list(creds):
+        ulist.append(ldap_posix_user(creds, u, container))
     return ulist
 
-def nss_getpwnam(args, unknownargs):
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
+def nss_getpwnam(args):
     if args.direct:
-        pw = ldap_posix_user(args.object, user_container())
+        pw = ldap_posix_user(get_creds(args), args.object, user_container())
     else:
         realm = get_default_realm()
         pw = getpwnam(args.object)
@@ -239,18 +197,12 @@ def nss_getpwnam(args, unknownargs):
     if pw:
         print(pw)
 
-def nss_getpwuid(args, unknownargs):
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
+def nss_getpwuid(args):
     pw = getpwnam(args.object)
     if pw:
         print(pw)
 
-def nss_getgrnam_getgrid(args, unknownargs):
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
+def nss_getgrnam_getgrid(args):
     gr = getgrnam(args.object)
     realm = get_default_realm()
     if not gr and not args.object.lower().endswith(realm.lower()) and not args.object.lower().startswith(realm.lower()):
@@ -258,175 +210,100 @@ def nss_getgrnam_getgrid(args, unknownargs):
     if gr:
         print(gr)
 
-def nss_getpwent(args, unknownargs):
-    global admin, password, debug_level
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    admin, password = get_creds(admin, password)
+def nss_getpwent(args):
+    creds = get_creds(args)
     if 'direct' in args and args.direct:
-        ulist = ldap_posix_pwent(user_container())
+        ulist = ldap_posix_pwent(creds, user_container())
     else:
-        ulist = getpwent(admin, password, debug_level)
+        ulist = getpwent(creds)
     for pw in ulist:
         if pw and pw.strip():
             print(pw)
 
-def nss_getgrent(args, unknownargs):
-    global admin, password, debug_level
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    admin, password = get_creds(admin, password)
-    getgrent(admin, password, debug_level)
+def nss_getgrent(args):
+    creds = get_creds(args)
+    getgrent(creds)
 
-def nss(args, unknownargs):
-    args.help_func()
-    exit(1)
-
-def unix_enable_user(name, passwd, container=None):
-    global admin, password, debug_level
-    admin, password = get_creds(admin, password)
-    l = ldap_open(get_default_realm(), admin, password)
-    dn = getdn(args.object)
-    data = passwd.split(':')
-
-    ldif_old = {'uidNumber': [''], 'gidNumber': [''], 'gecos': [''], 'homeDirectory': [''], 'loginShell': ['']}
-    ldif = {'uidNumber': [data[2]], 'gidNumber': [data[3]], 'gecos': [data[4]], 'homeDirectory': [data[5]], 'loginShell': [data[6]]}
-
-    try:
-        l.modify_s(dn, modlist(ldif_old, ldif))
-    except ldap.NO_SUCH_ATTRIBUTE:
-        l.modify_s(dn, modlist({}, ldif))
-
-def create(args, unknownargs):
-    args.help_func()
-    exit(1)
-
-def create_user(args, unknownargs):
-    global admin, password, debug_level, net
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    admin, password = get_creds(admin, password)
-    if not args.e:
-        new_user_pass = getpass("New password: ")
-        cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'add', args.object, new_user_pass, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
-        if debug_level != '0':
-            print(' '.join(cmd))
-        ret = Popen(cmd).wait()
-        if ret:
-            return ret
+def create_user(args):
+    unix_attrs = {}
     if args.i:
-        return unix_enable_user(args.object, args.i, args.c)
-
-def create_group(args, unknownargs):
-    global admin, password, debug_level, net
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    admin, password = get_creds(admin, password)
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'add', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
-    if debug_level != '0':
-        print(' '.join(cmd))
-    return Popen(cmd).wait()
-
-def delete(args, unknownargs):
-    args.help_func()
-    exit(1)
-
-def delete_user(args, unknownargs):
-    global admin, password, debug_level, net
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    admin, password = get_creds(admin, password)
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'user', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
-    if debug_level != '0':
-        print(' '.join(cmd))
-    return Popen(cmd).wait()
-
-def delete_group(args, unknownargs):
-    global admin, password, debug_level, net
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    admin, password = get_creds(admin, password)
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'group', 'delete', args.object, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
-    if debug_level != '0':
-        print(' '.join(cmd))
-    return Popen(cmd).wait()
-
-def user(args, unknownargs):
-    args.help_func()
-    exit(1)
-
-def user_checklogin(args, unknownargs):
-    if len(unknownargs) > 0 or not args.user:
-        args.help_func()
-        exit(1)
-    try:
-        import pam
-        p = pam.pam()
-        p.authenticate(args.user, getpass())
-        if p.code == 0:
-            print('Authentication succeeded')
+        data = args.i.split(':')
+        if len(data) != 7:
+            sys.stderr.write('Invalid unix attrs initializer string')
+            return -1
+        unix_attrs['uid'] = data[0]
+        if not args.e:
+            unix_attrs['uid_number'] = data[2]
         else:
-            print('Authentication failed, reason: %s' % p.reason)
-    except ImportError:
-        try:
-            import PAM
-            p = PAM.pam()
-            p.start('passwd')
-            p.set_item(PAM.PAM_USER, args.user)
-            p.set_item(PAM.PAM_CONV, pam_conv)
-            try:
-                p.authenticate()
-            except:
-                print('Authentication failed')
-            else:
-                print('Authentication succeeded')
-            try:
-                p.acct_mgmt()
-            except:
-                print('User is not allowed')
-            else:
-                print('User is allowed')
-        except ImportError:
-            pass
-
-def user_checkaccess(args, unknownargs):
-    if len(unknownargs) > 0 or not args.user:
-        args.help_func()
-        exit(1)
-    try:
-        import PAM
-        p = PAM.pam()
-        p.start('passwd')
-        p.set_item(PAM.PAM_USER, args.user)
-        try:
-            p.acct_mgmt()
-        except:
-            print('User is not allowed')
-        else:
-            print('User is allowed')
-    except ImportError:
-        pass
-
-def passwd(args, unknownargs):
-    global admin, password, debug_level, net
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    admin, password = get_creds(admin, password)
-    if args.object:
-        user = args.object
+            uid_number = data[2]
+        unix_attrs['gid_number'] = data[3]
+        unix_attrs['gecos'] = data[4]
+        unix_attrs['unix_home'] = data[5]
+        unix_attrs['login_shell'] = data[6]
+    if not args.e:
+        uadd = SambaToolFactory(cmd_user_add, args)
+        uadd.run(args.object, H='ldap://%s' % uadd.realm, **unix_attrs)
     else:
-        user = getuser()
-    cmd = [net, '--configfile=%s' % get_smb_conf(), 'rpc', 'password', user, '-U%s%%%s' % (admin, password), '-S', get_default_realm(), '-d', debug_level]
-    if debug_level != '0':
-        print(' '.join(cmd))
-    return Popen(cmd).wait()
+        uunix_attrs = SambaToolFactory(cmd_user_add_unix_attrs, args)
+        uunix_attrs.run(args.object, uid_number, H='ldap://%s' % uunix_attrs.realm, **unix_attrs)
+
+def create_group(args):
+    unix_attrs = {}
+    if args.i:
+        data = args.i.split(':')
+        if len(data) != 4:
+            sys.stderr.write('Invalid unix attrs initializer string')
+            return -1
+        unix_attrs['gid_number'] = data[2]
+    if not args.e:
+        gadd = SambaToolFactory(cmd_group_add, args)
+        if 'gid_number' in unix_attrs:
+            unix_attrs['nis_domain'] = gadd.realm
+        gadd.run(args.object, H='ldap://%s' % gadd.realm, **unix_attrs)
+    elif 'gid_number' in unix_attrs:
+        gunix_attrs = SambaToolFactory(cmd_group_add_unix_attrs, args)
+        if 'gid_number' in unix_attrs:
+            unix_attrs['nis_domain'] = gunix_attrs.realm
+        gunix_attrs.run(args.object, unix_attrs['gid_number'], H='ldap://%s' % gunix_attrs.realm)
+
+def delete_user(args):
+    delu = SambaToolFactory(cmd_user_delete, args)
+    delu.run(args.object, H='ldap://%s' % delu.realm)
+
+def delete_group(args):
+    delg = SambaToolFactory(cmd_group_delete, args)
+    delg.run(args.object, H='ldap://%s' % delg.realm)
+
+def user_checklogin(args):
+    p = pam.pam()
+    p.authenticate(args.user, getpass())
+    if p.code == 0:
+        print('Authentication succeeded')
+    else:
+        print('Authentication failed, reason: %s' % p.reason)
+    return p.code
+
+def passwd(args):
+    if args.r:
+        password = samba.generate_random_password(8, 20)
+    else:
+        password = None
+    while True:
+        if password is not None and password != '':
+            break
+        password = getpass("New Password: ")
+        passwordverify = getpass("Retype Password: ")
+        if not password == passwordverify:
+            password = None
+            print("Sorry, passwords do not match.")
+    creds = get_creds(args)
+    net = Net(creds)
+    if args.object:
+        net.set_password(args.object, get_default_realm(), password)
+    else:
+        net.change_password(password)
+    if args.o:
+        print(password)
 
 # http://stackoverflow.com/questions/33188413/python-code-to-convert-from-objectsid-to-sid-representation
 def convert_objsid_to_sidstr(binary):
@@ -446,82 +323,30 @@ def convert_objsid_to_sidstr(binary):
 def realm_to_dn(realm):
     return ','.join(['dc=%s' % part for part in realm.split('.')])
 
-def __validate_dom(dom):
-    global cldap_ret
-    net = Net(Credentials())
-    cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
-    return cldap_ret.dns_domain if cldap_ret else None
-
-def parse_username(username, domain=''):
-    dom, user = (domain, username)
-    if '\\' in username:
-        dom, user = username.split('\\')
-    elif '@' in username:
-        user, dom = username.split('@')
-    return dom, user
-
-def __format_username(username, realm):
-    dom, user = parse_username(username, realm)
-    cldap_dom = __validate_dom(dom)
-    dom = cldap_dom if dom else dom
-    return '%s@%s' % (user, dom.upper())
-
-def kinit_admin_try(user, password, realm):
-    global debug_level
-    cmd = [kcc_cmd('kinit')]
-    if debug_level != '0':
-        cmd.append('-V')
-    cmd.append(__format_username(user, realm))
-    p = Popen(cmd, stdin=PIPE, stderr=PIPE)
-    p.stdin.write(('%s\n' % password).encode())
-    p.stdin.flush()
-    return p
-
-def kinit_admin(user, password):
-    realm = get_default_realm()
-    p = kinit_admin_try(user, password, realm)
-    _, err = p.communicate()
-    if p.returncode == 0:
-        return p.returncode
-    else:
-        m = re.match(r'kinit: Credential cache directory ([/\w]+) does not exist while getting default ccache', err.decode())
-        if m:
-            os.makedirs(m.group(1), exist_ok=True)
-            p = kinit_admin_try(user, password, realm)
-            return p.wait()
-    return -1
-
 ldap_open_connections = {}
-def ldap_open(realm, user, password):
-    global ldap_open_connections
-    key = '%s:%s' % (realm, user)
+def ldap_open(realm, creds):
+    global ldap_open_connections, debug_level
+    key = '%s:%s' % (realm, creds.get_username())
     if key not in ldap_open_connections.keys():
-        if kinit_admin(user, password) != 0:
-            print('Authentication failed')
-            exit()
-        l = ldap.initialize('ldap://%s' % realm)
-        try:
-            auth_tokens = ldap.sasl.gssapi('')
-            l.sasl_interactive_bind_s('', auth_tokens)
-        except ldap.LDAPError as e:
-            print(e.args[0]['info'])
-            if type(e.args[0]) == dict and 'desc' in e.args[0].keys():
-                print(e.args[0]['desc'])
-            else:
-                print(e)
-            exit()
+        lp = LoadParm()
+        lp.load_default()
+        lp.set('log level', debug_level)
+        creds.guess(lp)
+        l = Ldb(url="ldap://%s" % realm,
+                session_info=system_session(),
+                credentials=creds, lp=lp)
         ldap_open_connections[key] = l
     return ldap_open_connections[key]
 
 wkguiduc = 'A9D1CA15768811D1ADED00C04FD8D5CD'
 uc = None
 def user_container():
-    global admin, password, uc, wkguiduc
+    global uc, wkguiduc
     if not uc:
-        admin, password = get_creds(admin, password)
-        l = ldap_open(get_default_realm(), admin, password)
-        results = l.search_s('<WKGUID=%s,%s>' % (wkguiduc, realm_to_dn(get_default_realm())), ldap.SCOPE_SUBTREE, '(objectClass=container)', ['distinguishedName'])
-        uc = results[0][1]['distinguishedName'][-1]
+        creds = get_creds(args)
+        l = ldap_open(get_default_realm(), creds)
+        results = l.search('<WKGUID=%s,%s>' % (wkguiduc, realm_to_dn(get_default_realm())), ldb.SCOPE_SUBTREE, '(objectClass=container)', ['distinguishedName'])
+        uc = results[0]['distinguishedName'][-1]
     return uc
 
 def print_ldap_object(obj, sidstr):
@@ -534,70 +359,57 @@ def print_ldap_object(obj, sidstr):
             for ob in obj[key]:
                 print('%s:: %s' % (key, ob))
         else:
-            for ob in obj[key]:
-                print('%s: %s' % (key, ob))
+            if type(obj[key]) == MessageElement:
+                for i in range(len(obj[key])):
+                    print('%s: %s' % (key, obj[key].get(i)))
+            else:
+                print('%s: %s' % (key, obj[key]))
 
-def attrs(args, unknownargs):
-    global admin, password, debug_level
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
+def attrs(args):
     if args.object:
-        admin, password = get_creds(admin, password)
-        l = ldap_open(get_default_realm(), admin, password)
+        creds = get_creds(args)
+        l = ldap_open(get_default_realm(), creds)
         container = args.c
         if not container:
             container = user_container()
-        if debug_level != '0':
-            print('ldapsearch', '-LLL', '-x', '-h', get_default_realm(), '-D', '%s@%s' % (admin, get_default_realm()), '-W', '-b', container, '"(cn=%s)"' % args.object, ' '.join(args.attributes))
-        results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % args.object, args.attributes)
+        results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % args.object, args.attributes)
         for result in results:
-            print_ldap_object(result[1], args.b)
+            print_ldap_object(result, args.b)
             print()
     else:
         args.help_func()
 
 def getdn(cn, container=None):
-    global admin, password
-    admin, password = get_creds(admin, password)
-    l = ldap_open(get_default_realm(), admin, password)
+    creds = get_creds(args)
+    l = ldap_open(get_default_realm(), creds)
     if not container:
         container = user_container()
-    results = l.search_s(container, ldap.SCOPE_SUBTREE, '(cn=%s)' % cn, ['distinguishedName'])
-    return results[0][1]['distinguishedName'][-1]
+    results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % cn, ['distinguishedName'])
+    return results[0]['distinguishedName'][-1]
 
-def setattrs(args, unknownargs):
-    global admin, password, debug_level
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    admin, password = get_creds(admin, password)
-    l = ldap_open(get_default_realm(), admin, password)
+def setattrs(args):
+    creds = get_creds(args)
+    l = ldap_open(get_default_realm(), creds)
     dn = getdn(args.object)
-    ldif_old = {args.attribute: ['']}
-    ldif = {args.attribute: [args.value]}
-    try:
-        l.modify_s(dn, modlist(ldif_old, ldif))
-    except ldap.NO_SUCH_ATTRIBUTE:
-        l.modify_s(dn, modlist({}, ldif))
+    ldif = 'dn: %s\nchangetype: modify\nreplace: %s\n%s: %s' % \
+            (dn, args.attribute, args.attribute, args.value)
+    l.modify_ldif(ldif)
 
-def timesync(args, unknownargs):
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    if args.s:
-        Popen(['service', 'ntpd', 'stop']).wait()
-        Popen(['/usr/sbin/ntpdate', args.s]).wait()
-        Popen(['service', 'ntpd', 'start']).wait()
+def timesync(args):
+    ntpdate = which('ntpdate')
+    if args.s and ntpdate:
+        service('ntpd', 'stop')
+        Popen([ntpdate, args.s]).wait()
+        service('ntpd', 'start')
 
 def config_ntp(servers):
     ntp_conf = '/etc/ntp.conf'
     if not os.path.exists(ntp_conf):
         sys.stderr.write('ntp not found. Package install required.\nzypper in ntp\n')
-        exit(1)
+        sys.exit(1)
 
     # stop the ntp service
-    Popen(['service', 'ntpd', 'stop']).wait()
+    service('ntpd', 'stop')
 
     config = ''
     for line in open(ntp_conf):
@@ -612,61 +424,64 @@ def config_ntp(servers):
     Popen(['/usr/sbin/ntpdate', servers[0]]).wait()
 
     # restart ntp
-    Popen(['service', 'ntpd', 'start']).wait()
+    service('ntpd', 'start')
 
-def config_smb_conf(domain, autogen=False, server=False):
-    smb_conf = get_smb_conf()
-    conf = SMBConfigParser()
-    if os.path.exists(smb_conf):
-        conf.read(smb_conf)
-    if 'global' not in conf.sections():
-        conf.add_section('global')
+def config_smb_conf(creds, domain, autogen=False, server=False):
+    conf = LoadParm()
+    conf.load_default()
+    smb_conf = conf.configfile if conf.configfile else default_path()
     if not server:
-        netbios = get_netbios_name(domain)
-        conf.set('global', 'security', 'ads')
-        conf.set('global', 'workgroup', domain.split('.')[0].upper())
-        conf.set('global', 'realm', domain.upper())
-        conf.set('global', 'log file', '/var/log/samba/%m.log')
-        conf.set('global', 'log level', '1')
-        conf.set('global', 'passdb backend', 'tdbsam')
-        conf.set('global', 'map to guest', 'Bad User')
-        conf.set('global', 'logon path', '\\\\%L\\profiles\\.msprofile')
-        conf.set('global', 'logon home', '\\\\%L\\%U\\.9xprofile')
-        conf.set('global', 'logon drive', 'P:')
-        conf.set('global', 'usershare allow guests', 'yes')
-        conf.set('global', 'winbind offline logon', 'yes')
+        netbios = get_netbios_name(creds, domain)
+        conf.set('security', 'ads')
+        conf.set('workgroup', domain.split('.')[0].upper())
+        conf.set('realm', domain.upper())
+        conf.set('log file', '/var/log/samba/%m.log')
+        conf.set('log level', '1')
+        conf.set('passdb backend', 'tdbsam')
+        conf.set('map to guest', 'Bad User')
+        conf.set('logon path', '\\\\%L\\profiles\\.msprofile')
+        conf.set('logon home', '\\\\%L\\%U\\.9xprofile')
+        conf.set('logon drive', 'P:')
+        conf.set('usershare allow guests', 'yes')
+        conf.set('winbind offline logon', 'yes')
         if autogen:
-            conf.set('global', 'template shell', '/bin/bash')
-            conf.set('global', 'template homedir', '/home/%D/%U')
-            conf.set('global', 'idmap config * : backend', 'tdb')
-            conf.set('global', 'idmap config * : range', '2000-3999')
-            conf.set('global', 'idmap config %s : backend' % netbios, 'rid')
-            conf.set('global', 'idmap config %s : range' % netbios, '4000-99999')
+            conf.set('template shell', '/bin/bash')
+            conf.set('template homedir', '/home/%D/%U')
+            conf.set('idmap config * : backend', 'tdb')
+            conf.set('idmap config * : range', '2000-3999')
+            conf.set('idmap config %s : backend' % netbios, 'rid')
+            conf.set('idmap config %s : range' % netbios, '4000-99999')
             if float(get_samba_version()[:3]) >= 4.6:
-                conf.set('global', 'idmap config *:unix_nss_info', 'no')
+                conf.set('idmap config *:unix_nss_info', 'no')
             else:
-                conf.set('global', 'winbind nss info', 'template')
+                conf.set('winbind nss info', 'template')
         else:
-            conf.set('global', 'idmap config *:backend', 'autorid')
-            conf.set('global', 'idmap config *:range', '2000-3999')
-            conf.set('global', 'idmap config %s:backend' % netbios, 'ad')
-            conf.set('global', 'idmap config %s:schema_mode' % netbios, 'rfc2307')
-            conf.set('global', 'idmap config %s:range' % netbios, '4000-99999')
+            conf.set('idmap config *:backend', 'autorid')
+            conf.set('idmap config *:range', '2000-3999')
+            conf.set('idmap config %s:backend' % netbios, 'ad')
+            conf.set('idmap config %s:schema_mode' % netbios, 'rfc2307')
+            conf.set('idmap config %s:range' % netbios, '4000-99999')
             if float(get_samba_version()[:3]) >= 4.6:
-                conf.set('global', 'idmap config %s:unix_nss_info' % netbios, 'yes')
+                conf.set('idmap config %s:unix_nss_info' % netbios, 'yes')
             else:
-                conf.set('global', 'winbind nss info', 'rfc2307')
+                conf.set('winbind nss info', 'rfc2307')
     else:
-        conf.set('global', 'winbind nss info', 'template')
-        conf.set('global', 'template shell', '/bin/bash')
-        conf.set('global', 'template homedir', '/home/%D/%U')
-    of = open(smb_conf, 'w')
-    conf.write(of)
-    of.close()
+        conf.set('winbind nss info', 'template')
+        conf.set('template shell', '/bin/bash')
+        conf.set('template homedir', '/home/%D/%U')
+    with NamedTemporaryFile(delete=False,
+                            dir=os.path.dirname(smb_conf)) as f:
+        conf.dump(False, f.name)
+        if os.path.exists(smb_conf):
+            mode = os.stat(smb_conf).st_mode
+            os.chmod(f.name, mode)
+        else:
+            os.chmod(f.name, 0o644)
+        os.rename(f.name, smb_conf)
 
 def config_winbind_conf():
     global winbind_conf
-    conf = SMBConfigParser()
+    conf = ConfigParser()
     if os.path.exists(winbind_conf):
         conf.read(winbind_conf)
     if 'global' not in conf.sections():
@@ -680,12 +495,7 @@ def config_winbind_conf():
     conf.write(of)
     of.close()
 
-def follow_symlinks(files):
-    for name in files:
-        if os.path.exists(name) and os.path.islink(name):
-            print('%s links to %s' % (name, os.path.realpath(name)))
-
-def configure_nsswitch_conf():
+def configure_nss(args):
     global nsswitch
     try:
         conf = ''
@@ -700,26 +510,8 @@ def configure_nsswitch_conf():
     except IOError:
         sys.stderr.write('Configure nsswitch failed, filename \'%s\' not found\n' % nsswitch)
 
-def configure_nss(args, unknownargs):
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    if not os.path.exists('@LIBDIR@/libnss_winbind.so'):
-        if os.path.exists('@LIBDIR@/libnss_winbind.so.2'):
-            os.symlink('@LIBDIR@/libnss_winbind.so.2', '@LIBDIR@/libnss_winbind.so')
-            follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
-            configure_nsswitch_conf()
-        else:
-            sys.stderr.write('Cannot find @LIBDIR@/libnss_winbind.so, check that you\'ve installed the library\n')
-    else:
-        follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
-        configure_nsswitch_conf()
-
-def unconfigure_nss(args, unknownargs):
+def unconfigure_nss(args):
     global nsswitch
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
     try:
         conf = ''
         for line in open(nsswitch):
@@ -733,115 +525,29 @@ def unconfigure_nss(args, unknownargs):
     except IOError:
         sys.stderr.write('Unconfigure nsswitch failed, filename \'%s\' not found\n' % nsswitch)
 
-def configure_pam_auth(pam_conf):
-    global pam_module
-    conf = ''
-    for line in open(pam_conf):
-        if 'pam_unix.so' in line and line.split()[0] == 'auth':
-            conf += 'auth\tsufficient\tpam_unix.so try_first_pass\n'
-            conf += 'auth\trequired\t%s use_first_pass\n' % pam_module
-        elif not pam_module.split('/')[-1] in line:
-            conf += line
-    of = open(pam_conf, 'w')
-    of.write(conf)
+def configure_pam(args):
+    if getuser() != 'root':
+        sys.stderr.write('ads configure must be run as root\n')
+        sys.exit(1)
+    pam_config = which('pam-config')
+    if pam_config:
+        return Popen([pam_config, '--add', '--winbind']).wait()
 
-def configure_pam_password(pam_conf):
-    global pam_module
-    conf = ''
-    first_line = True
-    for line in open(pam_conf):
-        if line.strip()[0] != '#' and first_line:
-            conf += 'password\tsufficient\t%s\n' % pam_module
-            first_line = False
-        elif not pam_module.split('/')[-1] in line:
-            conf += line
-    of = open(pam_conf, 'w')
-    of.write(conf)
+def unconfigure_pam(args):
+    if getuser() != 'root':
+        sys.stderr.write('ads configure must be run as root\n')
+        sys.exit(1)
+    pam_config = which('pam-config')
+    if pam_config:
+        return Popen([pam_config, '--delete', '--winbind']).wait()
 
-def configure_pam_session(pam_conf):
-    conf = ''
-    for line in open(pam_conf):
-        if 'session' in line and 'pam_unix.so' in line:
-            conf += 'session\toptional\tpam_mkhomedir.so\n'
-        elif not 'pam_mkhomedir.so' in line:
-            conf += line
-    of = open(pam_conf, 'w')
-    of.write(conf)
+def configure(args):
+    configure_pam(args)
+    configure_nss(args)
 
-def configure_pam(args, unknownargs):
-    global pam_auth_conf, pam_password_conf, pam_module, pam_session_conf
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-
-    if not os.path.exists(pam_module):
-        if os.path.exists('/lib64/security/pam_winbind.so'):
-            if not os.path.exists('@LIBDIR@/security'):
-                os.mkdir('@LIBDIR@/security')
-            os.symlink('/lib64/security/pam_winbind.so', pam_module)
-            configure_pam_auth(pam_auth_conf)
-            configure_pam_password(pam_password_conf)
-            configure_pam_session(pam_session_conf)
-            follow_symlinks([pam_module])
-        else:
-            sys.stderr.write('Cannot find @LIBDIR@/security/pam_winbind.so, check that you\'ve installed the library\n')
-    else:
-        configure_pam_auth(pam_auth_conf)
-        configure_pam_password(pam_password_conf)
-        configure_pam_session(pam_session_conf)
-        follow_symlinks([pam_module])
-
-def unconfigure_pam_password():
-    global pam_module, pam_password_conf
-    conf = ''
-    for line in open(pam_password_conf):
-        if not pam_module.split('/')[-1] in line:
-            conf += line
-    of = open(pam_password_conf, 'w')
-    of.write(conf)
-
-def unconfigure_pam_auth():
-    global pam_module, pam_auth_conf
-    conf = ''
-    first_line = True
-    for line in open(pam_auth_conf):
-        if 'pam_unix.so' in line and line.split()[0] == 'auth':
-            conf += 'auth\trequired\tpam_unix.so try_first_pass\n'
-        elif not pam_module.split('/')[-1] in line:
-            conf += line
-    of = open(pam_auth_conf, 'w')
-    of.write(conf)
-
-def unconfigure_pam_session():
-    global pam_session_conf
-    conf = ''
-    for line in open(pam_session_conf):
-        if not 'pam_mkhomedir.so' in line:
-            conf += line
-    of = open(pam_session_conf, 'w')
-    of.write(conf)
-
-def unconfigure_pam(args, unknownargs):
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    unconfigure_pam_auth()
-    unconfigure_pam_password()
-    unconfigure_pam_session()
-
-def configure(args, unknownargs):
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    configure_pam(args, unknownargs)
-    configure_nss(args, unknownargs)
-
-def unconfigure(args, unknownargs):
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    unconfigure_pam(args, unknownargs)
-    unconfigure_nss(args, unknownargs)
+def unconfigure(args):
+    unconfigure_pam(args)
+    unconfigure_nss(args)
 
 def ip_addrs():
     ifaces = [netifaces.ifaddresses(interface) for interface in netifaces.interfaces()]
@@ -851,21 +557,19 @@ def update_hostname(hostname, domain):
     # Retrieve the current hostname if one was specified
     shortname = None
     if not hostname:
-        hostname = Popen(['hostname'], stdout=PIPE).communicate()[0].strip()
+        hostname = socket.gethostname()
     if not domain.lower() in hostname:
         shortname = hostname
         hostname = '%s.%s\n' % (hostname, domain)
     else:
         shortname = hostname.split('.')[0]
-    hostname = hostname.strip()
-    shortname = shortname.strip()
 
     # Update the /etc/hostname file
     hf = open('/etc/hostname', 'w')
     hf.write('%s' % hostname)
 
     # Update the in-memory hostname
-    Popen(['hostname', hostname]).wait()
+    socket.sethostname(hostname)
 
     # Add an entry to /etc/hosts so we can resolve our own name
     hosts = '/etc/hosts'
@@ -920,41 +624,17 @@ def config_krb5_conf(domain, server):
 def list_servers(domain):
     return [str(resolver.query(reversename.from_address(r.address),"PTR")[0])[:-1] for r in resolver.query(domain, 'A')]
 
-def start_enable_service(name, binpath):
-    global service, systemctl
-    if os.path.exists(systemctl):
-        Popen([systemctl, 'enable', name], stdout=PIPE, stderr=PIPE).wait()
-        Popen([systemctl, 'daemon-reload'], stdout=PIPE, stderr=PIPE).wait()
-        if Popen([systemctl, 'restart', name], stdout=PIPE, stderr=PIPE).wait() == 0:
-            return
-    if os.path.exists(service):
-        if Popen([service, name, 'restart'], stdout=PIPE, stderr=PIPE).wait() == 0:
-            return
-    if os.path.exists(binpath):
-        if Popen([binpath, '-d', debug_level, '--configfile=%s' % get_smb_conf(), '-D'], stdout=PIPE, stderr=PIPE).wait() == 0:
-            return
+def service(name, command):
+    service = which('service')
+    systemctl = which('systemctl')
+    if systemctl:
+        return Popen([systemctl, command, name], stdout=DEVNULL, stderr=DEVNULL).wait()
+    elif service and command not in ['enable', 'disable']:
+        return Popen([service, name, command], stdout=DEVNULL, stderr=DEVNULL).wait()
     return -1
-
-def stop_disable_service(name):
-    global service, systemctl
-    if os.path.exists(systemctl):
-        Popen([systemctl, 'stop', name], stdout=PIPE, stderr=PIPE).wait()
-        if Popen([systemctl, 'disable', name], stdout=PIPE, stderr=PIPE).wait() == 0:
-            return
-    if os.path.exists(service):
-        if Popen([service, name, 'stop'], stdout=PIPE, stderr=PIPE).wait() == 0:
-            return
-    stop_samba(name)
 
 def stash_config():
     global krb5_conf
-    # Stash the old smb.conf
-    if os.path.exists(get_smb_conf()):
-        smb_conf = get_smb_conf()
-        now = datetime.datetime.now()
-        new_smb_conf = '%s.%s' % (smb_conf, now.strftime('%b-%d-%Y_%I:%M%p'))
-        print('Stashing smb.conf to %s...' % new_smb_conf)
-        os.rename(smb_conf, new_smb_conf)
     # Stash any old krb5.conf
     if os.path.exists(krb5_conf):
         now = datetime.datetime.now()
@@ -962,36 +642,18 @@ def stash_config():
         print('Stashing krb5.conf to %s...' % new_krb5_conf)
         os.rename(krb5_conf, new_krb5_conf)
 
-def start_samba():
-    global samba
-    start_enable_service('samba', samba)
-
-    # Make sure winbindd started also
-    ret = Popen(['ps ax | egrep "winbindd" | grep -v grep'], shell=True, stdout=PIPE).wait()
-    if ret != 0:
-        # If winbindd failed to start, try fixing it
-        stop_samba()
-
-        # Try again
-        ret = start_enable_service('samba', samba)
-
-    return ret
-
-def join(args, unknownargs):
-    global admin, password, debug_level, winbindd, smb_conf, net, samba_tool, default_realm
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
+def join(args):
     if getuser() != 'root':
         sys.stderr.write('ads join must be run as root\n')
-        exit(1)
-    admin, password = get_creds(admin, password)
+        sys.exit(1)
+    creds = get_creds(args)
 
     # Set the default realm, else kinit will fail
     default_realm = args.domain
 
-    stop_samba()
-    stop_disable_service('nscd')
+    for srv in ['samba', 'smbd', 'nmbd', 'winbind', 'nscd']:
+        service(srv, 'stop')
+    service('nscd', 'disable')
 
     server = None
     if not args.servers:
@@ -1018,7 +680,7 @@ def join(args, unknownargs):
     if not hasattr(args, 'domain_controller') or not args.domain_controller:
         # configure smb.conf
         print('Configuring smb.conf...')
-        config_smb_conf(args.domain, autogen=args.autogen_posix_attrs)
+        config_smb_conf(creds, args.domain, autogen=args.autogen_posix_attrs)
 
         # configure pam_winbind.conf
         print('Configuring pam_winbind.conf...')
@@ -1026,47 +688,41 @@ def join(args, unknownargs):
 
         # net ads join the domain
         print('Joining the domain...')
-        cmd = [net, '--configfile=%s' % get_smb_conf(), 'ads', 'join', '-U%s%%%s' % (admin, password), '-d', debug_level, '-S', server]
+        cmd = [which('net'), '--configfile=%s' % default_path(), 'ads', 'join', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-d', debug_level, '-S', server]
         if debug_level != '0':
             print(' '.join(cmd))
         ret = Popen(cmd).wait()
         if ret != 0:
             return ret
 
-        # start winbindd
-        sys.stdout.write('Starting winbindd... ')
-        ret = start_enable_service('winbindd', winbindd)
+        # start winbind
+        sys.stdout.write('Starting winbind... ')
+        ret = service('winbind', 'start')
+        if ret != 0:
+            sys.stdout.write('failed\n')
+        else:
+            sys.stdout.write('ok\n')
+
+        sys.stdout.write('Enabling winbind service... ')
+        ret = service('winbind', 'enable')
         if ret != 0:
             sys.stdout.write('failed\n')
         else:
             sys.stdout.write('ok\n')
     else:
-        if not os.path.exists(samba_tool):
-            sys.stderr.write('samba-ad-dc is not installed\n')
-            return 1
-
         # Cleanup old samba database files
         clean_samba_db()
 
-        # Kinit as the admin
-        print('kinit as %s...' % admin)
-        if kinit_admin(admin, password) != 0:
-            print('kinit failed')
-        if debug_level != '0':
-            Popen(['klist']).wait()
-
         # samba-tool domain join
         print('Joining the domain as a Domain Controller...')
-        cmd = [samba_tool, 'domain', 'join', args.domain, 'DC', '-U%s@%s%%%s' % (admin, args.domain, password)]
-        if debug_level != '0':
-            print(' '.join(cmd))
-        ret = Popen(cmd).wait()
-        if ret != 0:
+        join = SambaToolFactory(cmd_domain_join, args, creds)
+        ret = join.run(domain=args.domain, role='DC')
+        if ret == -1:
             return ret
 
         # configure smb.conf
         print('Configuring smb.conf...')
-        config_smb_conf(args.domain, server=True)
+        config_smb_conf(creds, args.domain, server=True)
 
         # configure pam_winbind.conf
         print('Configuring pam_winbind.conf...')
@@ -1074,35 +730,36 @@ def join(args, unknownargs):
 
         # start samba
         sys.stdout.write('Starting samba... ')
-        ret = start_samba()
+        ret = service('samba', 'start')
+        if ret != 0:
+            sys.stdout.write('failed\n')
+        else:
+            sys.stdout.write('ok\n')
+
+        sys.stdout.write('Enabling samba service... ')
+        ret = service('samba', 'enable')
         if ret != 0:
             sys.stdout.write('failed\n')
         else:
             sys.stdout.write('ok\n')
 
         # make sure the A record was added 
+        dns_add = SambaToolFactory(cmd_add_record, args, creds)
         for ip in ip_addrs():
             print('Verifying the DC DNS Record...')
             cmd = ['host', '-t', 'A', hostname[0]]
             if debug_level != '0':
                 print(' '.join(cmd))
-            ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
+            ret = Popen(cmd, stdout=DEVNULL, stderr=DEVNULL).wait()
             if ret != 0:
-                cmd = [samba_tool, 'dns', 'add', server, args.domain, hostname[1], 'A', ip, '-U%s@%s%%%s' % (admin, args.domain, password)]
-                if debug_level != '0':
-                    print(' '.join(cmd))
                 sys.stdout.write('Creating the DC DNS Record... ')
-                ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
-                if ret != 0:
-                    sys.stdout.write('failed\n')
-                else:
-                    sys.stdout.write('ok\n')
+                dns_add.run(server, args.domain, hostname[1], 'A', ip)
 
         print('Verifying the objectGUID Record...')
         sleep(3) # Creating the objectGUID dies if we don't sleep a bit
         objectGUID = None
-        l = ldap_open(args.domain, admin, password)
-        results = l.search_s("CN=Sites,CN=Configuration,%s" % realm_to_dn(args.domain), ldap.SCOPE_SUBTREE, "(invocationId=*)", ["objectguid"])
+        l = ldap_open(args.domain, creds)
+        results = l.search("CN=Sites,CN=Configuration,%s" % realm_to_dn(args.domain), ldb.SCOPE_SUBTREE, "(invocationId=*)", ["objectguid"])
         for result in results:
             if 'CN=NTDS Settings,CN=%s,' % hostname[1] in result[0]:
                 objectGUID = str(uuid.UUID(bytes=result[1]['objectGUID'][-1]))
@@ -1113,77 +770,59 @@ def join(args, unknownargs):
                 print(' '.join(cmd))
             ret = Popen(cmd).wait()
             if ret != 0:
-                cmd = [samba_tool, 'dns', 'add', hostname[1], '_msdcs.%s' % args.domain, objectGUID, 'CNAME', hostname[0], '-U%s@%s%%%s' % (admin, args.domain, password)]
-                if debug_level != '0':
-                    print(' '.join(cmd))
                 sys.stdout.write('Creating the objectGUID Record... ')
-                ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
-                if ret != 0:
-                    sys.stdout.write('failed\n')
-                    sys.stderr.write('The objectGUID Record will need to be created manually by running:\n# %s -U%s@%s\n' % (' '.join(cmd[:-1]), admin, args.domain))
-                else:
-                    sys.stdout.write('ok\n')
-
-        # Piggy back the sysvol off the primary KDC. TODO: Replicate the sysvol for real
-        lp = LoadParm()
-        lp.load(get_smb_conf())
-        cmd = ['mount.cifs', '//%s/sysvol' % server, lp.get('path', 'sysvol'), '-o', 'vers=2.1,username=%s,password=\'%s\'' % (admin, password)]
-        if debug_level != '0':
-            print(' '.join(cmd[:-1]), ','.join(cmd[-1].split(',')[0:2]))
-        sys.stdout.write('Mounting the sysvol share...')
-        ret = Popen(cmd, stdout=PIPE, stderr=PIPE).wait()
-        if ret != 0:
-            sys.stdout.write('failed\n')
-            sys.stderr.write('The sysvol will need to be mounted manually by running:\n# %s %s\n' % (' '.join(cmd[:-1]), ','.join(cmd[-1].split(',')[:-1])))
-        else:
-            sys.stdout.write('ok\n')
+                dns_add.run(hostname[1], '_msdcs.%s' % args.domain,
+                            objectGUID, 'CNAME', hostname[0])
 
     # configure nss
     print('Configuring nsswitch.conf...')
-    configure_nss()
+    configure_nss(args)
 
     # configure pam
     print('Configuring pam...')
-    configure_pam()
+    configure_pam(args)
 
-def provision(args, unknownargs):
-    global admin, password, debug_level, winbindd, smb_conf, net, samba_tool, krb5_conf
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
+def provision(args):
     if getuser() != 'root':
-        sys.stderr.write('ads join must be run as root\n')
-        exit(1)
-    if admin:
-        print('Changing username to Administrator because this is a provision...')
-    admin = 'Administrator'
-    if not password:
-        password = getpass("%s's Password: " % admin)
+        sys.stderr.write('ads provision must be run as root\n')
+        sys.exit(1)
 
-    stop_samba()
-    stop_disable_service('nscd')
+    for srv in ['samba', 'smbd', 'nmbd', 'winbind', 'nscd']:
+        service(srv, 'stop')
+    service('nscd', 'disable')
 
     # Update hostname
     print('Updating hostname...')
-    hostname = update_hostname(args.n, args.domain)
+    hostname = update_hostname(args.host_name, args.domain)
 
     stash_config()
     clean_samba_db()
 
     print('Provision the domain controller...')
-    cmd = [samba_tool, 'domain', 'provision', '--use-rfc2307', '--realm=%s' % args.domain.upper(), '--domain=%s' % args.domain.split('.')[0].upper(), '--server-role=dc', '--dns-backend=SAMBA_INTERNAL']
-    if args.bind_interfaces:
-        cmd.extend(['--option="interfaces=%s"' % ' '.join(args.bind_interfaces), '--option="bind interfaces only=yes"'])
-    cmd.extend(['--adminpass=%s' % password])
-    if debug_level != '0':
-        print(' '.join(cmd))
-    ret = Popen(cmd).wait()
-    if ret != 0:
+    provision = SambaToolFactory(cmd_domain_provision, args)
+    provision.set_realm(args.domain.upper())
+    ret = provision.run(interactive=args.interactive, domain=args.domain,
+                        domainguid=args.domain_guid, domainsid=args.domain_sid,
+                        hostname=args.host_name,
+                        hostip=args.host_ip, hostip6=args.host_ip6,
+                        sitename=args.site, ntdsguid=args.ntds_guid,
+                        invocationid=args.invocationid,
+                        adminpass=args.adminpass,
+                        krbtgtpass=args.krbtgtpass,
+                        dns_backend=args.dns_backend,
+                        dnspass=args.dnspass, root=args.root,
+                        nobody=args.nobody, users=args.users, blank=args.blank,
+                        serverrole=args.server_role,
+                        function_level=args.function_level,
+                        next_rid=args.next_rid,
+                        partitions_only=args.partitions_only,
+                        use_rfc2307=args.use_rfc2307)
+    if ret == -1:
         return ret
 
     # configure smb.conf
     print('Configuring smb.conf...')
-    config_smb_conf(args.domain, server=True)
+    config_smb_conf(creds, args.domain, server=True)
 
     # configure pam_winbind.conf
     print('Configuring pam_winbind.conf...')
@@ -1191,7 +830,7 @@ def provision(args, unknownargs):
 
     print('Configuring kerberos...')
     lp = LoadParm()
-    lp.load(get_smb_conf())
+    lp.load_default()
     cmd = ['ln', '-sf', os.path.join(lp.get('private directory'), 'krb5.conf'), krb5_conf]
     if debug_level != '0':
         print(' '.join(cmd))
@@ -1199,7 +838,14 @@ def provision(args, unknownargs):
 
     # start samba
     sys.stdout.write('Starting samba... ')
-    ret = start_samba()
+    ret = service('samba', 'start')
+    if ret != 0:
+        sys.stdout.write('failed\n')
+    else:
+        sys.stdout.write('ok\n')
+
+    sys.stdout.write('Enabling samba service... ')
+    ret = service('samba', 'enable')
     if ret != 0:
         sys.stdout.write('failed\n')
     else:
@@ -1207,119 +853,98 @@ def provision(args, unknownargs):
 
     # configure nss
     print('Configuring nsswitch.conf...')
-    configure_nss()
+    configure_nss(args)
 
     # configure pam
     print('Configuring pam...')
-    configure_pam()
+    configure_pam(args)
 
-def demote(args, unknownargs):
-    global admin, password, debug_level, samba_tool, krb5_conf
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
+def demote(args):
+    global debug_level, krb5_conf
     if getuser() != 'root':
         sys.stderr.write('ads demote must be run as root\n')
-        exit(1)
-    admin, password = get_creds(admin, password)
+        sys.exit(1)
+    creds = get_creds(args)
 
     print('Demoting the ADDC...')
-    cmd = [samba_tool, 'domain', 'demote', '-d', debug_level, '-U%s%%%s' % (admin, password)]
-    if debug_level != '0':
-        print(' '.join(cmd[:-1]), '-U%s' % admin)
-    Popen(cmd).wait()
+    demote = SambaToolFactory(cmd_domain_demote, args)
+    demote.run()
 
     lp = LoadParm()
-    lp.load(get_smb_conf())
+    lp.load_default()
     print('Unmounting the sysvol...')
     Popen(['umount', lp.get('path', 'sysvol')]).wait()
 
     print('Disabling the samba service...')
-    stop_disable_service('samba')
-    stop_samba()
+    for srv in ['samba', 'smbd', 'nmbd', 'winbind']:
+        service(srv, 'stop')
+        service(srv, 'disable')
 
     print('Unconfiguring pam...')
-    unconfigure_pam()
+    unconfigure_pam(args)
 
     print('Unconfiguring nss...')
-    unconfigure_nss()
+    unconfigure_nss(args)
 
     # Cleanup old samba database files
     print('Deleting samba database files...')
     clean_samba_db()
 
-    if os.path.exists(get_smb_conf()):
+    if os.path.exists(default_path()):
         print('Deleting smb.conf...')
-        os.remove(get_smb_conf())
+        os.remove(default_path())
     if os.path.exists(krb5_conf):
         print('Deleting krb5.conf...')
         os.remove(krb5_conf)
 
 
-def unjoin(args, unknownargs):
-    global admin, password, debug_level, net, krb5_conf
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
+def unjoin(args):
+    global debug_level, krb5_conf
     lp = LoadParm()
-    lp.load(get_smb_conf())
+    lp.load_default()
     if lp.get('server role') == 'active directory domain controller':
-        demote(args, unknownargs)
+        demote(args)
     else:
         if getuser() != 'root':
             sys.stderr.write('ads unjoin must be run as root\n')
-            exit(1)
-        admin, password = get_creds(admin, password)
+            sys.exit(1)
+        creds = get_creds(args)
 
         print('Unjoining the domain...')
-        cmd = [net, 'ads', 'leave', '-d', debug_level, '-U%s%%%s' % (admin, password)]
+        cmd = [which('net'), 'ads', 'leave', '-d', debug_level, '-U%s%%%s' % (creds.get_username(), creds.get_password())]
         if debug_level != '0':
             print(' '.join(cmd[:-1]), '-U%s' % admin)
         Popen(cmd).wait()
 
         remove_hosts_config()
 
-        stop_disable_service('winbindd')
-
-        stop_samba()
+        for srv in ['samba', 'smbd', 'nmbd', 'winbind']:
+            service(srv, 'stop')
+            service(srv, 'disable')
 
         print('Unconfiguring pam...')
-        unconfigure_pam()
+        unconfigure_pam(args)
 
         print('Unconfiguring nss...')
-        unconfigure_nss()
+        unconfigure_nss(args)
 
         # Cleanup old samba database files
         clean_samba_db()
 
-        if os.path.exists(get_smb_conf()):
+        if os.path.exists(default_path()):
             print('Deleting smb.conf...')
-            os.remove(get_smb_conf())
+            os.remove(default_path())
         if os.path.exists(krb5_conf):
             print('Deleting krb5.conf...')
             os.remove(krb5_conf)
 
-def info(args, unknownargs):
-    args.help_func()
-    exit(1)
-
-def info_domain(args, unknownargs):
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
+def info_domain(args):
     print(get_default_realm())
 
-def info_cldap(args, unknownargs):
-    global admin, password
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    admin, password = get_creds(admin, password)
+def info_cldap(args):
     creds = Credentials()
-    creds.set_username(admin)
-    creds.set_password(password)
     lp = LoadParm()
-    lp.load(get_smb_conf())
+    lp.load_default()
 
     netcmd = Net(creds, lp)
     cldap_ret = netcmd.finddc(address=args.server, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
@@ -1335,97 +960,92 @@ def info_cldap(args, unknownargs):
 
 def kcc_cmd(name):
     path = which(name)
-    if not path:
-        try:
-            out, _ = Popen(['rpm', '-ql', 'krb5-client'], stderr=open(os.devnull, 'w'), stdout=PIPE).communicate()
-            files = out.decode().split()
-            for f in files:
-                if os.path.split(f)[-1] == name:
-                    return f
-        except OSError:
-            pass
-    else:
-        return path
-    return name
+    if path is None:
+        sys.stderr.write('%s is not in your path\n' % name)
+        sys.exit(1)
+    return path
 
-def kcc(cmd):
-    if debug_level != '0':
-        print(' '.join(cmd))
-    try:
-        return Popen(cmd).wait()
-    except OSError as e:
-        if 'No such file or directory' in str(e):
-            sys.stderr.write('%s is not in your path\n' % cmd[0])
-            exit(1)
-
-def kinit(args, unknownargs):
+def kinit(args):
     cmd = [kcc_cmd('kinit')]
-    cmd.extend(unknownargs)
-    kcc(cmd)
-
-def klist(args, unknownargs):
-    cmd = [kcc_cmd('klist')]
-    cmd.extend(unknownargs)
-    kcc(cmd)
-
-def kdestroy(args, unknownargs):
-    cmd = [kcc_cmd('kdestroy')]
-    cmd.extend(unknownargs)
-    kcc(cmd)
-
-def ktutil(args, unknownargs):
-    cmd = [kcc_cmd('ktutil')]
-    cmd.extend(unknownargs)
-    kcc(cmd)
-
-def flush(args, unknownargs):
-    global net
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
-    if getuser() != 'root':
-        sys.stderr.write('ads flush must be run as root\n')
-        exit(1)
-    stop_samba()
-
-    cmd = [net, 'cache', 'flush']
-    if debug_level != '0':
-        print(' '.join(cmd))
+    cmd.extend(args)
     Popen(cmd).wait()
 
-    lp = LoadParm()
-    lp.load(get_smb_conf())
-    if lp.get('server role') == 'active directory domain controller':
-        start_samba()
-    else:
-        start_enable_service('winbindd', winbindd)
+def klist(args):
+    cmd = [kcc_cmd('klist')]
+    cmd.extend(args)
+    Popen(cmd).wait()
 
-def daemon(args, unknownargs):
-    if len(unknownargs) > 0:
-        args.help_func()
-        exit(1)
+def kdestroy(args):
+    cmd = [kcc_cmd('kdestroy')]
+    cmd.extend(args)
+    Popen(cmd).wait()
+
+def ktutil(args):
+    cmd = [kcc_cmd('ktutil')]
+    cmd.extend(args)
+    Popen(cmd).wait()
+
+def flush(args):
+    if getuser() != 'root':
+        sys.stderr.write('ads flush must be run as root\n')
+        sys.exit(1)
+    for srv in ['samba', 'smbd', 'nmbd', 'winbind']:
+        service(srv, 'stop')
+
+    lp = LoadParm()
+    lp.load_default()
+    gencache = tdb.open(lp.state_path('lock/gencache.tdb'), tdb_flags=tdb.NOLOCK)
+    gencache.clear()
+
+    if lp.get('server role') == 'active directory domain controller':
+        service('samba', 'start')
+    else:
+        service('winbind', 'start')
+
+def daemon(args):
     if getuser() != 'root':
         sys.stderr.write('ads daemon must be run as root\n')
-        exit(1)
-    binary = None
-    if args.service == 'winbindd':
-        binary = winbindd
-    elif args.service == 'samba':
-        binary = samba
-    if args.action == 'start':
-        return start_enable_service(args.service, binary)
-    elif args.action == 'stop':
-        stop_samba(args.service)
-    elif args.action == 'restart':
-        stop_samba(args.service)
-        return start_enable_service(args.service, binary)
+        sys.exit(1)
+    return service(args.service, args.action)
+
+def argparse_add_options(parser, options, ignore=[]):
+    '''Add samba options to an argparse parser
+    param parser    The parser to append arguments to
+    param options   A list of Option objects to modify and add as arguments
+    '''
+    for opt in options:
+        if opt.dest in ignore:
+            continue
+        kwargs = {}
+        if opt.action is not None:
+            kwargs['action'] = opt.action
+        if opt.type is not None:
+            if opt.type == 'string':
+                kwargs['type'] = str
+            elif opt.type == 'choice':
+                pass
+            else:
+                exec("kwargs['type'] = %s" % opt.type)
+        if opt.dest is not None:
+            kwargs['dest'] = opt.dest
+        if opt.default is not None and opt.default != ('NO', 'DEFAULT'):
+            kwargs['default'] = opt.default
+        if opt.nargs is not None:
+            kwargs['nargs'] = opt.nargs
+        if opt.const is not None:
+            kwargs['const'] = opt.const
+        if opt.choices is not None:
+            kwargs['choices'] = opt.choices
+        if opt.help is not None:
+            kwargs['help'] = opt.help
+        if opt.metavar is not None:
+            kwargs['metavar'] = opt.metavar
+        parser.add_argument(opt.get_opt_string(), **kwargs)
 
 def argparser():
     description = "Active Directory Swiss army knife for samba.\nFor join, unjoin, provisioning, demotion, user/group and password administration,\nldap attribute modification, posix enablement, kdc timesync, pam and nss configuration,\ndaemon start/stop, cache flush, etc.\nThe ads command attempts to maintain compatibility with the proprietary vastool command,\nwhile also adding additional features relevant to samba (such as kdc provisioning)."
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-v', '--version', action='version', version='@VERSION@', help='ads version')
-    parser.add_argument('--pam_auth_conf', help='Specify the location of the pam auth conf file')
-    parser.add_argument('--pam_password_conf', help='Specify the location of the pam password file')
     parser.add_argument('-u', help='Authenticating user')
     parser.add_argument('-w', help='Authenticating password')
     parser.add_argument('-d', help='debug level')
@@ -1451,7 +1071,7 @@ def argparser():
     getpwent_parser.set_defaults(func=nss_getpwent)
     getgrent_parser = nss_subparsers.add_parser('getgrent')
     getgrent_parser.set_defaults(func=nss_getgrent)
-    nss_parser.set_defaults(func=nss)
+    nss_parser.set_defaults(func=lambda args: args.help_func())
     nss_parser.set_defaults(help_func=nss_parser.print_help)
 
     user_parser = subparsers.add_parser('user', help='Manage Active Directory users')
@@ -1459,10 +1079,7 @@ def argparser():
     checklogin_parser = user_subparsers.add_parser('checklogin')
     checklogin_parser.add_argument('user')
     checklogin_parser.set_defaults(func=user_checklogin)
-    checkaccess_parser = user_subparsers.add_parser('checkaccess')
-    checkaccess_parser.add_argument('user')
-    checkaccess_parser.set_defaults(func=user_checkaccess)
-    user_parser.set_defaults(func=user)
+    user_parser.set_defaults(func=lambda args: args.help_func())
     user_parser.set_defaults(help_func=user_parser.print_help)
 
     create_parser = subparsers.add_parser('create', help='Create Active Directory users/groups')
@@ -1476,7 +1093,7 @@ def argparser():
     create_group_parser = create_subparsers.add_parser('group')
     create_group_parser.add_argument('object', help='group')
     create_group_parser.set_defaults(func=create_group)
-    create_parser.set_defaults(func=create)
+    create_parser.set_defaults(func=lambda args: args.help_func())
     create_parser.set_defaults(help_func=create_parser.print_help)
 
     delete_parser = subparsers.add_parser('delete', help='Delete Active Directory users/groups')
@@ -1487,7 +1104,7 @@ def argparser():
     delete_group_parser = delete_subparsers.add_parser('group')
     delete_group_parser.add_argument('object', help='group')
     delete_group_parser.set_defaults(func=delete_group)
-    delete_parser.set_defaults(func=delete)
+    delete_parser.set_defaults(func=lambda args: args.help_func())
     delete_parser.set_defaults(help_func=delete_parser.print_help)
 
     list_parser = subparsers.add_parser('list', help='List Active Directory users/groups')
@@ -1496,10 +1113,12 @@ def argparser():
     list_users_parser.set_defaults(func=nss_getpwent)
     list_groups_parser = list_subparsers.add_parser('groups')
     list_groups_parser.set_defaults(func=nss_getgrent)
-    list_parser.set_defaults(func=nss)
+    list_parser.set_defaults(func=lambda args: args.help_func())
     list_parser.set_defaults(help_func=list_parser.print_help)
 
     passwd_parser = subparsers.add_parser('passwd', help='Change Active Directory user passwords')
+    passwd_parser.add_argument('-r', help='Sets the password to a random value')
+    passwd_parser.add_argument('-o', help='Will output the new password to stdout')
     passwd_parser.add_argument('object', nargs='?')
     passwd_parser.set_defaults(func=passwd)
     passwd_parser.set_defaults(help_func=passwd_parser.print_help)
@@ -1522,8 +1141,7 @@ def argparser():
 
     join_parser = subparsers.add_parser('join', help='Join this computer to an Active Directory domain')
     join_parser.add_argument('--autogen-posix-attrs', action='store_true')
-    if kdc_installed():
-        join_parser.add_argument('--domain-controller', action='store_true', help='Join the machine as a Active Directory Domain Controller member server')
+    join_parser.add_argument('--domain-controller', action='store_true', help='Join the machine as a Active Directory Domain Controller member server')
     join_parser.add_argument('--disable-pam', action='store_true', help='Don\'t configure pam during the join')
     join_parser.add_argument('domain')
     join_parser.add_argument('-n', help='Join as hostname')
@@ -1535,17 +1153,15 @@ def argparser():
     unjoin_parser.set_defaults(func=unjoin)
     unjoin_parser.set_defaults(help_func=unjoin_parser.print_help)
 
-    if kdc_installed():
-        provision_parser = subparsers.add_parser('provision', help='Provision an Active Directory Domain Controller')
-        provision_parser.add_argument('domain')
-        provision_parser.add_argument('-n', help='Join as hostname')
-        provision_parser.add_argument('--bind-interfaces', nargs='+', help='Use this option to bind Samba to the specified interfaces')
-        provision_parser.set_defaults(func=provision)
-        provision_parser.set_defaults(help_func=provision_parser.print_help)
+    provision_parser = subparsers.add_parser('provision', help='Provision an Active Directory Domain Controller')
+    provision_parser.add_argument('domain', help='NetBIOS domain name to use')
+    argparse_add_options(provision_parser, cmd_domain_provision.takes_options, ['domain'])
+    provision_parser.set_defaults(func=provision)
+    provision_parser.set_defaults(help_func=provision_parser.print_help)
 
-        demote_parser = subparsers.add_parser('demote', help='Demote an Active Directory Domain Controller')
-        demote_parser.set_defaults(func=demote)
-        demote_parser.set_defaults(help_func=demote_parser.print_help)
+    demote_parser = subparsers.add_parser('demote', help='Demote an Active Directory Domain Controller')
+    demote_parser.set_defaults(func=demote)
+    demote_parser.set_defaults(help_func=demote_parser.print_help)
 
     timesync_parser = subparsers.add_parser('timesync', help='Syncronize machine time with Active Directory')
     timesync_parser.add_argument('-s', help='Server to sync with')
@@ -1577,7 +1193,7 @@ def argparser():
     info_cldap_parser = info_subparsers.add_parser('cldap')
     info_cldap_parser.add_argument('server')
     info_cldap_parser.set_defaults(func=info_cldap)
-    info_parser.set_defaults(func=info)
+    info_parser.set_defaults(func=lambda args: args.help_func())
     info_parser.set_defaults(help_func=info_parser.print_help)
 
     kinit_parser = subparsers.add_parser('kinit', help='Request an initial ticket-granting ticket', add_help=False)
@@ -1597,8 +1213,8 @@ def argparser():
     flush_parser.set_defaults(help_func=flush_parser.print_help)
 
     daemon_parser = subparsers.add_parser('daemon', help='Start, stop or restart the samba or winbind service')
-    daemon_parser.add_argument('action', choices=['start', 'stop', 'restart'])
-    daemon_parser.add_argument('service', choices=['winbindd', 'samba'])
+    daemon_parser.add_argument('action', choices=['start', 'stop', 'restart', 'enable', 'disable', 'status'])
+    daemon_parser.add_argument('service', choices=['samba', 'smbd', 'nmbd', 'winbind'])
     daemon_parser.set_defaults(func=daemon)
     daemon_parser.set_defaults(help_func=daemon_parser.print_help)
 
@@ -1608,17 +1224,12 @@ if __name__ == "__main__":
     parser = argparser()
     args, unknownargs = parser.parse_known_args()
 
-    if args.pam_auth_conf:
-        pam_auth_conf = args.pam_auth_conf
-    if args.pam_password_conf:
-        pam_password_conf = args.pam_password_conf
-
-    if args.u:
-        admin = args.u
-    if args.w:
-        password = args.w
     if args.d:
         debug_level = args.d
 
-    exit(args.func(args, unknownargs))
-
+    if args.func in [kinit, klist, kdestroy, ktutil]:
+        sys.exit(args.func(unknownargs))
+    elif len(unknownargs) == 0:
+        sys.exit(args.func(args))
+    else:
+        sys.exit(args.help_func())

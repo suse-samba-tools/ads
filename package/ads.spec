@@ -17,30 +17,32 @@
 
 
 Name:           ads
-Version:        1.5
+Version:        2.0
 Release:        0
 Summary:        Swiss army knife for samba
 License:        GPL-3.0
 Group:          Productivity/Networking/Samba
-Url:            http://www.github.com/dmulder/ads
+Url:            https://github.com/suse-samba-tools/ads
 Source:         %{name}-%{version}.tar.bz2
 Requires:       krb5-client
 Requires:       python3-dnspython
-Requires:       python3-ldap
+Requires:       python3-ldb
 Requires:       python3-netifaces
 Requires:       python3-python-pam
 Requires:       samba-client
 Requires:       samba-python3
 Requires:       ntp
+Requires:       samba-dsdb-modules
 BuildRequires:  autoconf
 BuildRequires:  automake
 BuildRequires:  python3
 BuildRequires:  python3-argparse-manpage
 BuildRequires:  python3-dnspython
-BuildRequires:  python3-ldap
+BuildRequires:  python3-ldb
 BuildRequires:  python3-netifaces
 BuildRequires:  python3-python-pam
 BuildRequires:  samba-python3
+Provides:       vasclnt vastool
 
 %description
 Active Directory services tool for samba.
@@ -64,6 +66,7 @@ make
 %files
 %defattr(-,root,root)
 %{_bindir}/ads
+%{_bindir}/vastool
 %{_mandir}/man1/ads.1*
 
 %changelog
