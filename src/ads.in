@@ -1054,6 +1054,8 @@ def argparser():
     parser.add_argument('-u', help='Authenticating user')
     parser.add_argument('-w', help='Authenticating password')
     parser.add_argument('-d', help='debug level')
+    parser.set_defaults(func=lambda args: args.help_func())
+    parser.set_defaults(help_func=parser.print_help)
     subparsers = parser.add_subparsers()
 
     nss_parser = subparsers.add_parser('nss', help='Run nss functions')
