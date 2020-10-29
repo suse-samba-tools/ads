@@ -17,12 +17,12 @@
 
 
 Name:           ads
-Version:        1.5
+Version:        2.0
 Release:        0
 Summary:        Swiss army knife for samba
 License:        GPL-3.0
 Group:          Productivity/Networking/Samba
-Url:            http://www.github.com/dmulder/ads
+Url:            https://github.com/suse-samba-tools/ads
 Source:         %{name}-%{version}.tar.bz2
 Requires:       krb5-client
 Requires:       python3-dnspython
