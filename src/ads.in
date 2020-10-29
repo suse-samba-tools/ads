@@ -35,7 +35,6 @@ from tempfile import NamedTemporaryFile
 nsswitch = '/etc/nsswitch.conf'
 krb5_conf = '/etc/krb5.conf'
 winbind_conf = '/etc/security/pam_winbind.conf'
-net = '@BINDIR@/net'
 debug_level = '0'
 
 class Output(Enum):
@@ -706,7 +705,7 @@ def join(args):
 
         # net ads join the domain
         print('Joining the domain...')
-        cmd = [net, '--configfile=%s' % default_path(), 'ads', 'join', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-d', debug_level, '-S', server]
+        cmd = [which('net'), '--configfile=%s' % default_path(), 'ads', 'join', '-U%s%%%s' % (creds.get_username(), creds.get_password()), '-d', debug_level, '-S', server]
         if debug_level != '0':
             print(' '.join(cmd))
         ret = Popen(cmd).wait()
@@ -917,7 +916,7 @@ def demote(args):
 
 
 def unjoin(args):
-    global debug_level, net, krb5_conf
+    global debug_level, krb5_conf
     lp = LoadParm()
     lp.load_default()
     if lp.get('server role') == 'active directory domain controller':
@@ -929,7 +928,7 @@ def unjoin(args):
         creds = get_creds(args)
 
         print('Unjoining the domain...')
-        cmd = [net, 'ads', 'leave', '-d', debug_level, '-U%s%%%s' % (creds.get_username(), creds.get_password())]
+        cmd = [which('net'), 'ads', 'leave', '-d', debug_level, '-U%s%%%s' % (creds.get_username(), creds.get_password())]
         if debug_level != '0':
             print(' '.join(cmd[:-1]), '-U%s' % admin)
         Popen(cmd).wait()
