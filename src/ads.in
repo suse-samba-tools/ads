@@ -331,6 +331,7 @@ def ldap_open(realm, creds):
         lp = LoadParm()
         lp.load_default()
         lp.set('log level', debug_level)
+        creds.guess(lp)
         l = Ldb(url="ldap://%s" % realm,
                 session_info=system_session(),
                 credentials=creds, lp=lp)
