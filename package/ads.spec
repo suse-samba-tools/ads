@@ -42,6 +42,7 @@ BuildRequires:  python3-ldb
 BuildRequires:  python3-netifaces
 BuildRequires:  python3-python-pam
 BuildRequires:  samba-python3
+Provides:       vasclnt vastool
 
 %description
 Active Directory services tool for samba.
@@ -65,6 +66,7 @@ make
 %files
 %defattr(-,root,root)
 %{_bindir}/ads
+%{_bindir}/vastool
 %{_mandir}/man1/ads.1*
 
 %changelog

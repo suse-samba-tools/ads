@@ -1,0 +1,12 @@
+#!/bin/sh
+
+VASTOOL=/opt/quest/bin/vastool
+ADS=`which ads`
+YELLOW='\033[0;33m'
+CLEAR='\033[0m'
+if [ -f $VASTOOL ] ; then
+	$VASTOOL $@
+else
+	>&2 printf "${YELLOW}INFO: Emulating vastool via Samba Winbind${CLEAR}\n"
+	$ADS $@
+fi
