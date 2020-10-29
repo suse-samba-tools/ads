@@ -1008,6 +1008,11 @@ def daemon(args):
         sys.exit(1)
     return service(args.service, args.action)
 
+def inspect(args):
+    lp = LoadParm()
+    lp.load_default()
+    print(lp.get(args.setting, args.section))
+
 def argparse_add_options(parser, options, ignore=[]):
     '''Add samba options to an argparse parser
     param parser    The parser to append arguments to
@@ -1217,6 +1222,12 @@ def argparser():
     daemon_parser.add_argument('service', choices=['samba', 'smbd', 'nmbd', 'winbind'])
     daemon_parser.set_defaults(func=daemon)
     daemon_parser.set_defaults(help_func=daemon_parser.print_help)
+
+    inspect_parser = subparsers.add_parser('inspect', help='Returns the value of a configuration file setting')
+    inspect_parser.add_argument('section')
+    inspect_parser.add_argument('setting')
+    inspect_parser.set_defaults(func=inspect)
+    inspect_parser.set_defaults(help_func=inspect_parser.print_help)
 
     return parser
 
