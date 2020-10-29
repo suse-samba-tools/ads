@@ -495,12 +495,7 @@ def config_winbind_conf():
     conf.write(of)
     of.close()
 
-def follow_symlinks(files):
-    for name in files:
-        if os.path.exists(name) and os.path.islink(name):
-            print('%s links to %s' % (name, os.path.realpath(name)))
-
-def configure_nsswitch_conf():
+def configure_nss(args):
     global nsswitch
     try:
         conf = ''
@@ -514,18 +509,6 @@ def configure_nsswitch_conf():
         of.write(conf)
     except IOError:
         sys.stderr.write('Configure nsswitch failed, filename \'%s\' not found\n' % nsswitch)
-
-def configure_nss(args):
-    if not os.path.exists('@LIBDIR@/libnss_winbind.so'):
-        if os.path.exists('@LIBDIR@/libnss_winbind.so.2'):
-            os.symlink('@LIBDIR@/libnss_winbind.so.2', '@LIBDIR@/libnss_winbind.so')
-            follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
-            configure_nsswitch_conf()
-        else:
-            sys.stderr.write('Cannot find @LIBDIR@/libnss_winbind.so, check that you\'ve installed the library\n')
-    else:
-        follow_symlinks(['@LIBDIR@/libnss_winbind.so'])
-        configure_nsswitch_conf()
 
 def unconfigure_nss(args):
     global nsswitch
