@@ -27,6 +27,7 @@ import psutil, os, signal
 import socket
 from enum import Enum
 import tdb, ldb
+from ldb import MessageElement
 from io import StringIO
 from samba.auth import system_session
 from tempfile import NamedTemporaryFile
@@ -62,9 +63,9 @@ class SambaToolFactory(object):
 
         self.outlog = StringIO()
         self.errlog = StringIO()
-        self.sobj = scmd(errf=sys.stderr if stderr == Output.STDERR else self.errlog)
+        self.sobj = scmd(errf=sys.stderr if stderr == Output.STDERR else self.errlog,
+                         outf=sys.stdout if stdout == Output.STDOUT else self.outlog)
         self.sobj.logger = get_samba_logger(name='ads',
-                    stream=sys.stdout if stdout == Output.STDOUT else self.outlog,
                     verbose=(int(debug_level) > 0),
                     quiet=False, fmt='%(message)s')
 
@@ -169,26 +170,26 @@ def get_creds(args):
         creds.set_password(getpass("%s's Password: " % creds.get_username()))
     return creds
 
-def ldap_posix_user(user, container):
+def ldap_posix_user(creds, user, container):
     l = ldap_open(get_default_realm(), creds)
-    results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % args.object, ['sAMAccountName', 'uidNumber', 'gidNumber', 'gecos', 'homeDirectory', 'loginShell'])
+    results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % user, ['sAMAccountName', 'uidNumber', 'gidNumber', 'gecos', 'homeDirectory', 'loginShell'])
     if len(results) == 1:
-        result = results[0][1]
+        result = results[0]
         data = '%s:x' % result['sAMAccountName'][-1]
         for key in ['uidNumber', 'gidNumber', 'gecos', 'homeDirectory', 'loginShell']:
             arg = result[key][-1] if key in result.keys() else ''
             data += ':%s' % arg
         return data
 
-def ldap_posix_pwent(container):
+def ldap_posix_pwent(creds, container):
     ulist = []
     for u in user_list(creds):
-        ulist.append(ldap_posix_user(u, container))
+        ulist.append(ldap_posix_user(creds, u, container))
     return ulist
 
 def nss_getpwnam(args):
     if args.direct:
-        pw = ldap_posix_user(args.object, user_container())
+        pw = ldap_posix_user(get_creds(args), args.object, user_container())
     else:
         realm = get_default_realm()
         pw = getpwnam(args.object)
@@ -213,7 +214,7 @@ def nss_getgrnam_getgrid(args):
 def nss_getpwent(args):
     creds = get_creds(args)
     if 'direct' in args and args.direct:
-        ulist = ldap_posix_pwent(user_container())
+        ulist = ldap_posix_pwent(creds, user_container())
     else:
         ulist = getpwent(creds)
     for pw in ulist:
@@ -346,7 +347,7 @@ def user_container():
         creds = get_creds(args)
         l = ldap_open(get_default_realm(), creds)
         results = l.search('<WKGUID=%s,%s>' % (wkguiduc, realm_to_dn(get_default_realm())), ldb.SCOPE_SUBTREE, '(objectClass=container)', ['distinguishedName'])
-        uc = results[0][1]['distinguishedName'][-1]
+        uc = results[0]['distinguishedName'][-1]
     return uc
 
 def print_ldap_object(obj, sidstr):
@@ -359,8 +360,11 @@ def print_ldap_object(obj, sidstr):
             for ob in obj[key]:
                 print('%s:: %s' % (key, ob))
         else:
-            for ob in obj[key]:
-                print('%s: %s' % (key, ob))
+            if type(obj[key]) == MessageElement:
+                for i in range(len(obj[key])):
+                    print('%s: %s' % (key, obj[key].get(i)))
+            else:
+                print('%s: %s' % (key, obj[key]))
 
 def attrs(args):
     if args.object:
@@ -371,7 +375,7 @@ def attrs(args):
             container = user_container()
         results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % args.object, args.attributes)
         for result in results:
-            print_ldap_object(result[1], args.b)
+            print_ldap_object(result, args.b)
             print()
     else:
         args.help_func()
@@ -382,13 +386,14 @@ def getdn(cn, container=None):
     if not container:
         container = user_container()
     results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % cn, ['distinguishedName'])
-    return results[0][1]['distinguishedName'][-1]
+    return results[0]['distinguishedName'][-1]
 
 def setattrs(args):
     creds = get_creds(args)
     l = ldap_open(get_default_realm(), creds)
     dn = getdn(args.object)
-    ldif = 'dn: %s\n%s: %s' % (dn, args.attribute, args.value)
+    ldif = 'dn: %s\nchangetype: modify\nreplace: %s\n%s: %s' % \
+            (dn, args.attribute, args.attribute, args.value)
     l.modify_ldif(ldif)
 
 def timesync(args):
