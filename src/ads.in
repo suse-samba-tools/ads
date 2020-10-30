@@ -1013,6 +1013,46 @@ def inspect(args):
     lp.load_default()
     print(lp.get(args.setting, args.section))
 
+def is_user_ad(args):
+    try:
+        local = pwd.getpwnam(args.name) is not None
+    except KeyError:
+        local = False
+    ad = False
+    creds = get_creds(args)
+    l = ldap_open(get_default_realm(), creds)
+    results = l.search(user_container(creds), ldb.SCOPE_SUBTREE, '(&(objectClass=user)(cn=%s))' % args.name, ['dn'])
+    if len(results) > 0:
+        ad = True
+    if ad and local:
+        return 4
+    elif not ad and not local:
+        return 3
+    elif local:
+        return 2
+    elif ad:
+        return 0
+
+def is_group_ad(args):
+    try:
+        local = grp.getgrnam(args.name) is not None
+    except KeyError:
+        local = False
+    ad = False
+    creds = get_creds(args)
+    l = ldap_open(get_default_realm(), creds)
+    results = l.search(user_container(creds), ldb.SCOPE_SUBTREE, '(&(objectClass=group)(cn=%s))' % args.name, ['dn'])
+    if len(results) > 0:
+        ad = True
+    if ad and local:
+        return 4
+    elif not ad and not local:
+        return 3
+    elif local:
+        return 2
+    elif ad:
+        return 0
+
 def argparse_add_options(parser, options, ignore=[]):
     '''Add samba options to an argparse parser
     param parser    The parser to append arguments to
@@ -1230,6 +1270,23 @@ def argparser():
     inspect_parser.add_argument('setting')
     inspect_parser.set_defaults(func=inspect)
     inspect_parser.set_defaults(help_func=inspect_parser.print_help)
+
+    parent_isad_parser = argparse.ArgumentParser(add_help=False)
+    isad_subparser = parent_isad_parser.add_subparsers()
+    isad_parser = subparsers.add_parser('isad', parents=[parent_isad_parser],
+            help='Used to check if a given user is an Active Directory user')
+    isvas_parser = subparsers.add_parser('isvas', parents=[parent_isad_parser],
+            help='Used to check if a given user is an Active Directory user. This is an alias to isad')
+    isad_user_parser = isad_subparser.add_parser('user')
+    isad_user_parser.add_argument('name')
+    isad_group_parser = isad_subparser.add_parser('group')
+    isad_group_parser.add_argument('name')
+    isad_user_parser.set_defaults(func=is_user_ad)
+    isad_group_parser.set_defaults(func=is_group_ad)
+    isad_parser.set_defaults(func=lambda args: args.help_func())
+    isad_parser.set_defaults(help_func=isad_parser.print_help)
+    isvas_parser.set_defaults(func=lambda args: args.help_func())
+    isvas_parser.set_defaults(help_func=isvas_parser.print_help)
 
     return parser
 
