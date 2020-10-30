@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 import sys, argparse, struct, os.path, datetime, uuid, re, pam
 from time import sleep
 from configparser import ConfigParser
