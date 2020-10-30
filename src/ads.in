@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 import sys, argparse, struct, os.path, datetime, uuid, re, pam
 from time import sleep
 from configparser import ConfigParser
@@ -188,7 +188,8 @@ def ldap_posix_pwent(creds, container):
 
 def nss_getpwnam(args):
     if args.direct:
-        pw = ldap_posix_user(get_creds(args), args.object, user_container())
+        creds = get_creds(args)
+        pw = ldap_posix_user(creds, args.object, user_container(creds))
     else:
         realm = get_default_realm()
         pw = getpwnam(args.object)
@@ -213,7 +214,7 @@ def nss_getgrnam_getgrid(args):
 def nss_getpwent(args):
     creds = get_creds(args)
     if 'direct' in args and args.direct:
-        ulist = ldap_posix_pwent(creds, user_container())
+        ulist = ldap_posix_pwent(creds, user_container(creds))
     else:
         ulist = getpwent(creds)
     for pw in ulist:
@@ -340,10 +341,9 @@ def ldap_open(realm, creds):
 
 wkguiduc = 'A9D1CA15768811D1ADED00C04FD8D5CD'
 uc = None
-def user_container():
+def user_container(creds):
     global uc, wkguiduc
     if not uc:
-        creds = get_creds(args)
         l = ldap_open(get_default_realm(), creds)
         results = l.search('<WKGUID=%s,%s>' % (wkguiduc, realm_to_dn(get_default_realm())), ldb.SCOPE_SUBTREE, '(objectClass=container)', ['distinguishedName'])
         uc = results[0]['distinguishedName'][-1]
@@ -371,7 +371,7 @@ def attrs(args):
         l = ldap_open(get_default_realm(), creds)
         container = args.c
         if not container:
-            container = user_container()
+            container = user_container(creds)
         results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % args.object, args.attributes)
         for result in results:
             print_ldap_object(result, args.b)
@@ -383,7 +383,7 @@ def getdn(cn, container=None):
     creds = get_creds(args)
     l = ldap_open(get_default_realm(), creds)
     if not container:
-        container = user_container()
+        container = user_container(creds)
     results = l.search(container, ldb.SCOPE_SUBTREE, '(cn=%s)' % cn, ['distinguishedName'])
     return results[0]['distinguishedName'][-1]
 
@@ -1008,6 +1008,51 @@ def daemon(args):
         sys.exit(1)
     return service(args.service, args.action)
 
+def inspect(args):
+    lp = LoadParm()
+    lp.load_default()
+    print(lp.get(args.setting, args.section))
+
+def is_user_ad(args):
+    try:
+        local = pwd.getpwnam(args.name) is not None
+    except KeyError:
+        local = False
+    ad = False
+    creds = get_creds(args)
+    l = ldap_open(get_default_realm(), creds)
+    results = l.search(user_container(creds), ldb.SCOPE_SUBTREE, '(&(objectClass=user)(cn=%s))' % args.name, ['dn'])
+    if len(results) > 0:
+        ad = True
+    if ad and local:
+        return 4
+    elif not ad and not local:
+        return 3
+    elif local:
+        return 2
+    elif ad:
+        return 0
+
+def is_group_ad(args):
+    try:
+        local = grp.getgrnam(args.name) is not None
+    except KeyError:
+        local = False
+    ad = False
+    creds = get_creds(args)
+    l = ldap_open(get_default_realm(), creds)
+    results = l.search(user_container(creds), ldb.SCOPE_SUBTREE, '(&(objectClass=group)(cn=%s))' % args.name, ['dn'])
+    if len(results) > 0:
+        ad = True
+    if ad and local:
+        return 4
+    elif not ad and not local:
+        return 3
+    elif local:
+        return 2
+    elif ad:
+        return 0
+
 def argparse_add_options(parser, options, ignore=[]):
     '''Add samba options to an argparse parser
     param parser    The parser to append arguments to
@@ -1049,6 +1094,8 @@ def argparser():
     parser.add_argument('-u', help='Authenticating user')
     parser.add_argument('-w', help='Authenticating password')
     parser.add_argument('-d', help='debug level')
+    parser.set_defaults(func=lambda args: args.help_func())
+    parser.set_defaults(help_func=parser.print_help)
     subparsers = parser.add_subparsers()
 
     nss_parser = subparsers.add_parser('nss', help='Run nss functions')
@@ -1217,6 +1264,29 @@ def argparser():
     daemon_parser.add_argument('service', choices=['samba', 'smbd', 'nmbd', 'winbind'])
     daemon_parser.set_defaults(func=daemon)
     daemon_parser.set_defaults(help_func=daemon_parser.print_help)
+
+    inspect_parser = subparsers.add_parser('inspect', help='Returns the value of a configuration file setting')
+    inspect_parser.add_argument('section')
+    inspect_parser.add_argument('setting')
+    inspect_parser.set_defaults(func=inspect)
+    inspect_parser.set_defaults(help_func=inspect_parser.print_help)
+
+    parent_isad_parser = argparse.ArgumentParser(add_help=False)
+    isad_subparser = parent_isad_parser.add_subparsers()
+    isad_parser = subparsers.add_parser('isad', parents=[parent_isad_parser],
+            help='Used to check if a given user is an Active Directory user')
+    isvas_parser = subparsers.add_parser('isvas', parents=[parent_isad_parser],
+            help='Used to check if a given user is an Active Directory user. This is an alias to isad')
+    isad_user_parser = isad_subparser.add_parser('user')
+    isad_user_parser.add_argument('name')
+    isad_group_parser = isad_subparser.add_parser('group')
+    isad_group_parser.add_argument('name')
+    isad_user_parser.set_defaults(func=is_user_ad)
+    isad_group_parser.set_defaults(func=is_group_ad)
+    isad_parser.set_defaults(func=lambda args: args.help_func())
+    isad_parser.set_defaults(help_func=isad_parser.print_help)
+    isvas_parser.set_defaults(func=lambda args: args.help_func())
+    isvas_parser.set_defaults(help_func=isvas_parser.print_help)
 
     return parser
 
